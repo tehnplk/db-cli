@@ -77,7 +77,7 @@ function parseArgs(argv) {
 function normalizeVendor(input) {
   const raw = String(input || "mysql").toLowerCase();
 
-  if (raw === "mysql") return "mysql";
+  if (raw === "mysql" || raw === "my") return "mysql";
   if (raw === "postgres" || raw === "postgresql" || raw === "pg") return "postgres";
   return "";
 }
@@ -90,7 +90,7 @@ function printHelp() {
   console.log("  db-cli --version");
   console.log("");
   console.log("Command options:");
-  console.log("  --vendor <mysql|postgres>  Database vendor (default: mysql)");
+  console.log("  --vendor <mysql|postgres>  Database vendor (aliases: my, pg; default: mysql)");
   console.log("  --host <value>             Database host");
   console.log("  --port <value>             Database port");
   console.log("  --user, -u <value>         Database user");
@@ -145,7 +145,7 @@ function resolveConfig(args) {
   const vendor = normalizeVendor(args.vendor || process.env.DB_VENDOR || "mysql");
 
   if (!vendor) {
-    throw new Error("Invalid --vendor. Use mysql or postgres.");
+    throw new Error("Invalid --vendor. Use mysql/my or postgres/pg.");
   }
 
   const defaultPort = vendor === "postgres" ? 5432 : 3306;
@@ -264,4 +264,5 @@ async function run() {
 }
 
 run();
+
 

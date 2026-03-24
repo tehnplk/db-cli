@@ -24,7 +24,7 @@ db-cli --vendor mysql -u root -p secret -d app -e "SELECT id, name FROM users"
 
 ## Options
 
-- `--vendor <mysql|postgres>` (default: `mysql`)
+- `--vendor <mysql|postgres>` (aliases: `my`, `pg`; default: `mysql`)
 - `--host <value>`
 - `--port <value>`
 - `--user, -u <value>`
@@ -67,3 +67,4 @@ For SQL/config errors:
 status|message
 error|<error message>
 ```
+
