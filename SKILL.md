@@ -7,6 +7,26 @@ description: Execute MySQL queries from command line and return pipe-delimited o
 
 Run SQL against MySQL using CLI options (no environment variables required).
 
+## Installation
+
+Install globally from GitHub:
+
+```bash
+npm install -g github:tehnplk/db-cli
+```
+
+Update to latest version:
+
+```bash
+npm install -g github:tehnplk/db-cli
+```
+
+If `db-cli` is not found, run with `.cmd` on Windows:
+
+```bash
+db-cli.cmd --help
+```
+
 ## Run command
 
 ```bash
