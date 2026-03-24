@@ -2,6 +2,7 @@
 "use strict";
 
 const mysql = require("mysql2/promise");
+const { version } = require("../package.json");
 
 function parseArgs(argv) {
   const args = {
@@ -54,6 +55,11 @@ function parseArgs(argv) {
 
     if (token === "--help" || token === "-h") {
       args.help = true;
+      continue;
+    }
+
+    if (token === "--version" || token === "-v") {
+      args.version = true;
     }
   }
 
@@ -64,6 +70,7 @@ function printHelp() {
   console.log("Usage:");
   console.log('  db-cli --host localhost --port 3306 --user root --password secret --database app --exec "SELECT * FROM users"');
   console.log('  db-cli -u root -p secret -d app -e "SELECT * FROM users"');
+  console.log("  db-cli --version");
   console.log("");
   console.log("Command options:");
   console.log("  --host <value>        MySQL host");
@@ -72,6 +79,7 @@ function printHelp() {
   console.log("  --password, -p <val>  MySQL password");
   console.log("  --database, --db, -d  Database name");
   console.log('  --exec, -e "sql"      SQL to execute');
+  console.log("  --version, -v         Show CLI version");
   console.log("");
   console.log("Environment variables:");
   console.log("  DB_HOST (default: localhost)");
@@ -106,6 +114,11 @@ function printError(message) {
 
 async function run() {
   const args = parseArgs(process.argv.slice(2));
+
+  if (args.version) {
+    console.log(version);
+    process.exit(0);
+  }
 
   if (args.help || !args.execSql) {
     printHelp();
@@ -148,4 +161,3 @@ async function run() {
 }
 
 run();
-
