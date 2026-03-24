@@ -1,34 +1,45 @@
 ﻿# db-cli
 
-Simple Node.js CLI for executing MySQL SQL.
+Simple Node.js CLI for executing SQL on MySQL and PostgreSQL.
 
 ## Usage
 
+MySQL:
+
 ```bash
-db-cli --host localhost --port 3306 --user root --password secret --database app --exec "SELECT id, name FROM users"
+db-cli --vendor mysql --host localhost --port 3306 --user root --password secret --database app --exec "SELECT id, name FROM users"
+```
+
+PostgreSQL:
+
+```bash
+db-cli --vendor postgres --host localhost --port 5432 --user postgres --password secret --database app --exec "SELECT id, name FROM users"
 ```
 
 Short options:
 
 ```bash
-db-cli -u root -p secret -d app -e "SELECT id, name FROM users"
+db-cli --vendor mysql -u root -p secret -d app -e "SELECT id, name FROM users"
 ```
 
 ## Options
 
+- `--vendor <mysql|postgres>` (default: `mysql`)
 - `--host <value>`
 - `--port <value>`
 - `--user, -u <value>`
 - `--password, -p <value>`
 - `--database, --db, -d <value>`
 - `--exec, -e "sql"`
+- `--version, -v`
 
 ## Environment fallback
 
 If an option is not provided in command line, it falls back to env vars:
 
+- `DB_VENDOR` (default `mysql`)
 - `DB_HOST` (default `localhost`)
-- `DB_PORT` (default `3306`)
+- `DB_PORT` (default `3306` for mysql, `5432` for postgres)
 - `DB_USER`
 - `DB_PASSWORD` (default empty)
 - `DB_NAME`
@@ -47,5 +58,12 @@ For non-select SQL (insert/update/delete):
 
 ```text
 status|affectedRows|insertId
-ok|1|0
+ok|1|
+```
+
+For SQL/config errors:
+
+```text
+status|message
+error|<error message>
 ```

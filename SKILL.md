@@ -1,11 +1,11 @@
 ﻿---
 name: db-cli
-description: Execute MySQL queries from command line and return pipe-delimited output. Use when the user needs to run SQL quickly via `db-cli --exec`, list tables, inspect data, or capture structured `status|message` errors without writing code.
+description: Execute SQL from command line for MySQL and PostgreSQL and return pipe-delimited output. Use when the user needs to run SQL quickly via `db-cli --exec`, list tables, inspect data, or capture structured `status|message` errors without writing code.
 ---
 
 # db-cli
 
-Run SQL against MySQL using CLI options (no environment variables required).
+Run SQL against MySQL or PostgreSQL using CLI options (no environment variables required).
 
 ## Installation
 
@@ -29,14 +29,22 @@ db-cli.cmd --help
 
 ## Run command
 
+MySQL:
+
 ```bash
-db-cli --host <host> --port <port> --user <user> --password <password> --database <database> --exec "<sql>"
+db-cli --vendor mysql --host <host> --port <port> --user <user> --password <password> --database <database> --exec "<sql>"
+```
+
+PostgreSQL:
+
+```bash
+db-cli --vendor postgres --host <host> --port <port> --user <user> --password <password> --database <database> --exec "<sql>"
 ```
 
 Short form:
 
 ```bash
-db-cli -u <user> -p <password> -d <database> -e "<sql>"
+db-cli --vendor mysql -u <user> -p <password> -d <database> -e "<sql>"
 ```
 
 ## Output contract
@@ -60,18 +68,4 @@ SQL/config error:
 ```text
 status|message
 error|<error message>
-```
-
-## Common queries
-
-List tables:
-
-```bash
-db-cli --host localhost --port 3306 --user root --password 112233 --database hosxp_pcu --exec "SHOW TABLES;"
-```
-
-Preview rows:
-
-```bash
-db-cli --host localhost --port 3306 --user root --password 112233 --database hosxp_pcu --exec "SELECT * FROM vn_stat LIMIT 20;"
 ```

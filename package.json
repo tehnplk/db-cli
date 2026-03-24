@@ -1,22 +1,25 @@
-{
-  "name": "db-cli",
-  "version": "1.0.0",
-  "description": "Simple MySQL CLI executor",
-  "bin": {
-    "db-cli": "bin/db-cli.js"
-  },
-  "main": "bin/db-cli.js",
-  "scripts": {
-    "start": "node bin/db-cli.js"
-  },
-  "keywords": [
-    "mysql",
-    "cli",
-    "sql"
-  ],
-  "author": "",
-  "license": "ISC",
-  "dependencies": {
-    "mysql2": "^3.20.0"
-  }
+﻿{
+    "name":  "db-cli",
+    "version":  "1.0.0",
+    "description":  "CLI for MySQL and PostgreSQL SQL execution",
+    "bin":  {
+                "db-cli":  "bin/db-cli.js"
+            },
+    "main":  "bin/db-cli.js",
+    "scripts":  {
+                    "start":  "node bin/db-cli.js"
+                },
+    "keywords":  [
+                     "mysql",
+                     "postgres",
+                     "postgresql",
+                     "cli",
+                     "sql"
+                 ],
+    "author":  "",
+    "license":  "ISC",
+    "dependencies":  {
+                         "mysql2":  "^3.20.0",
+                         "pg":  "^8.20.0"
+                     }
 }
