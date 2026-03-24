@@ -51,7 +51,6 @@ db-cli --engine my -u root -p secret -d app -e "SELECT id, name FROM users"
 ## Options
 
 - `--engine <mysql|postgres>` (aliases: `my`, `pg`; default: `mysql`)
-- `--vendor <mysql|postgres>` deprecated alias of `--engine`
 - `--host <value>`
 - `--port <value>`
 - `--user, -u <value>`
@@ -66,7 +65,6 @@ db-cli --engine my -u root -p secret -d app -e "SELECT id, name FROM users"
 If an option is not provided in command line, it falls back to env vars:
 
 - `DB_ENGINE` (default `mysql`)
-- `DB_VENDOR` deprecated alias of `DB_ENGINE`
 - `DB_HOST` (default `localhost`)
 - `DB_PORT` (default `3306` for mysql, `5432` for postgres)
 - `DB_USER`
@@ -96,4 +94,3 @@ For SQL/config errors:
 status|message
 error|<error message>
 ```
-

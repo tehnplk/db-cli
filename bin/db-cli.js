@@ -15,7 +15,8 @@ function parseArgs(argv) {
     user: null,
     password: null,
     database: null,
-    engine: null
+    engine: null,
+    invalidOption: null
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -27,13 +28,13 @@ function parseArgs(argv) {
       continue;
     }
 
-    if (token === "--host") {
+    if (token === "--host" || token === "-H") {
       args.host = argv[i + 1] || null;
       i += 1;
       continue;
     }
 
-    if (token === "--port") {
+    if (token === "--port" || token === "-P") {
       args.port = argv[i + 1] || null;
       i += 1;
       continue;
@@ -57,7 +58,7 @@ function parseArgs(argv) {
       continue;
     }
 
-    if (token === "--engine" || token === "--vendor") {
+    if (token === "--engine" || token === "-g") {
       args.engine = argv[i + 1] || null;
       i += 1;
       continue;
@@ -75,6 +76,11 @@ function parseArgs(argv) {
 
     if (token === "--skill" || token === "-s") {
       args.skill = true;
+      continue;
+    }
+
+    if (token.startsWith("-") && !args.invalidOption) {
+      args.invalidOption = token;
     }
   }
 
@@ -91,27 +97,27 @@ function normalizeEngine(input) {
 
 function printHelp() {
   console.log("Usage:");
+  console.log('  db-cli -g mysql -H localhost -P 3306 -u root -p secret -d app -e "SELECT * FROM users"');
+  console.log('  db-cli -g postgres -H localhost -P 5432 -u postgres -p secret -d app -e "SELECT * FROM users"');
   console.log('  db-cli --engine mysql --host localhost --port 3306 --user root --password secret --database app --exec "SELECT * FROM users"');
   console.log('  db-cli --engine postgres --host localhost --port 5432 --user postgres --password secret --database app --exec "SELECT * FROM users"');
-  console.log('  db-cli --engine mysql -u root -p secret -d app -e "SELECT * FROM users"');
-  console.log("  db-cli --version");
-  console.log("  db-cli --skill");
+  console.log("  db-cli -v | --version");
+  console.log("  db-cli -s | --skill");
   console.log("");
   console.log("Command options:");
-  console.log("  --engine <mysql|postgres>  Database engine (aliases: my, pg; default: mysql)");
-  console.log("  --vendor <mysql|postgres>  Deprecated alias for --engine");
-  console.log("  --host <value>             Database host");
-  console.log("  --port <value>             Database port");
-  console.log("  --user, -u <value>         Database user");
-  console.log("  --password, -p <val>       Database password");
-  console.log("  --database, --db, -d       Database name");
-  console.log('  --exec, -e "sql"           SQL to execute');
-  console.log("  --version, -v              Show CLI version");
-  console.log("  --skill, -s                Print SKILL.md");
+  console.log("  -g, --engine <mysql|postgres>  Database engine (aliases: my, pg; default: mysql)");
+  console.log("  -H, --host <value>             Database host");
+  console.log("  -P, --port <value>             Database port");
+  console.log("  -u, --user <value>             Database user");
+  console.log("  -p, --password <value>         Database password");
+  console.log("  -d, --database, --db <value>   Database name");
+  console.log('  -e, --exec "sql"               SQL to execute');
+  console.log("  -v, --version                  Show CLI version");
+  console.log("  -s, --skill                    Print SKILL.md");
+  console.log("  -h, --help                     Show help");
   console.log("");
   console.log("Environment variables:");
   console.log("  DB_ENGINE (default: mysql)");
-  console.log("  DB_VENDOR (deprecated alias of DB_ENGINE)");
   console.log("  DB_HOST (default: localhost)");
   console.log("  DB_PORT (default: 3306 for mysql, 5432 for postgres)");
   console.log("  DB_USER (required)");
@@ -139,7 +145,14 @@ function getErrorMessage(error) {
   if (error.name === "AggregateError" && Array.isArray(error.errors) && error.errors.length > 0) {
     return error.errors.map((err) => getErrorMessage(err)).join(" | ");
   }
-  if (error.message) return error.message;
+
+  const message = typeof error.message === "string" ? error.message.trim() : "";
+  if (message) return message;
+
+  if (typeof error.code === "string" && error.code.trim()) {
+    return error.code;
+  }
+
   return String(error);
 }
 
@@ -159,7 +172,7 @@ function printError(message) {
 }
 
 function resolveConfig(args) {
-  const engine = normalizeEngine(args.engine || process.env.DB_ENGINE || process.env.DB_VENDOR || "mysql");
+  const engine = normalizeEngine(args.engine || process.env.DB_ENGINE || "mysql");
 
   if (!engine) {
     throw new Error("Invalid --engine. Use mysql/my or postgres/pg.");
@@ -260,6 +273,11 @@ async function run() {
   if (args.skill) {
     printSkill();
     process.exit(0);
+  }
+
+  if (args.invalidOption) {
+    printError(`Unknown option: ${args.invalidOption}. Run --help or --skill for usage.`);
+    process.exit(1);
   }
 
   if (args.help || !args.execSql) {

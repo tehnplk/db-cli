@@ -29,6 +29,14 @@ db-cli.cmd --help
 
 ## Run command
 
+Short form (recommended):
+
+```bash
+db-cli -g my -H <host> -P <port> -u <user> -p <password> -d <database> -e "<sql>"
+```
+
+Long form:
+
 MySQL:
 
 ```bash
@@ -41,40 +49,31 @@ PostgreSQL:
 db-cli --engine postgres --host <host> --port <port> --user <user> --password <password> --database <database> --exec "<sql>"
 ```
 
-Short form:
-
-```bash
-db-cli --engine my -u <user> -p <password> -d <database> -e "<sql>"
-```
-
 Version and skill:
 
 ```bash
-db-cli --version
 db-cli -v
-db-cli --skill
+db-cli --version
 db-cli -s
+db-cli --skill
 ```
-
 ## Options
 
-- `--engine <mysql|postgres>` (supports `my`, `postgresql`, `pg`; default `mysql`)
-- `--vendor <mysql|postgres>` deprecated alias of `--engine`
-- `--host <value>`
-- `--port <value>` (default `3306` for mysql, `5432` for postgres)
-- `--user, -u <value>`
-- `--password, -p <value>`
-- `--database, --db, -d <value>`
-- `--exec, -e "<sql>"`
-- `--version, -v`
-- `--skill, -s` (print `SKILL.md`)
-
+- `-g, --engine <mysql|postgres>` (supports `my`, `postgresql`, `pg`; default `mysql`)
+- `-H, --host <value>`
+- `-P, --port <value>` (default `3306` for mysql, `5432` for postgres)
+- `-u, --user <value>`
+- `-p, --password <value>`
+- `-d, --database, --db <value>`
+- `-e, --exec "<sql>"`
+- `-v, --version`
+- `-s, --skill` (print `SKILL.md`)
+- `-h, --help`
 ## Environment fallback
 
 If options are not provided, use:
 
 - `DB_ENGINE`
-- `DB_VENDOR` deprecated alias of `DB_ENGINE`
 - `DB_HOST`
 - `DB_PORT`
 - `DB_USER`
@@ -119,4 +118,3 @@ SQL/config error:
 status|message
 error|<error message>
 ```
-
