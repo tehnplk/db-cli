@@ -99,6 +99,11 @@ function printTable(rows, fields) {
   }
 }
 
+function printError(message) {
+  console.log("status|message");
+  console.log(`error|${toCell(message)}`);
+}
+
 async function run() {
   const args = parseArgs(process.argv.slice(2));
 
@@ -117,7 +122,7 @@ async function run() {
   };
 
   if (!config.user || !config.database) {
-    console.error("Missing MySQL user or database. Use --user/--database or DB_USER/DB_NAME.");
+    printError("Missing MySQL user or database. Use --user/--database or DB_USER/DB_NAME.");
     process.exit(1);
   }
 
@@ -133,7 +138,7 @@ async function run() {
       console.log(`ok|${rows.affectedRows || 0}|${rows.insertId || 0}`);
     }
   } catch (error) {
-    console.error(`DB Error: ${error.message}`);
+    printError(error.message);
     process.exit(1);
   } finally {
     if (connection) {
@@ -143,3 +148,4 @@ async function run() {
 }
 
 run();
+
