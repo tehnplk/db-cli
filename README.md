@@ -1,4 +1,4 @@
-﻿# db-cli
+# db-cli
 
 Simple Node.js CLI for executing SQL on MySQL and PostgreSQL.
 
@@ -19,7 +19,7 @@ db-cli --vendor postgres --host localhost --port 5432 --user postgres --password
 Short options:
 
 ```bash
-db-cli --vendor mysql -u root -p secret -d app -e "SELECT id, name FROM users"
+db-cli --vendor my -u root -p secret -d app -e "SELECT id, name FROM users"
 ```
 
 ## Options
@@ -32,6 +32,7 @@ db-cli --vendor mysql -u root -p secret -d app -e "SELECT id, name FROM users"
 - `--database, --db, -d <value>`
 - `--exec, -e "sql"`
 - `--version, -v`
+- `--skill, -s` (print `SKILL.md`)
 
 ## Environment fallback
 
@@ -54,7 +55,7 @@ id|name
 2|Bob
 ```
 
-For non-select SQL (insert/update/delete):
+For non-select SQL (insert/update/delete/create/drop/truncate):
 
 ```text
 status|affectedRows|insertId
@@ -67,4 +68,3 @@ For SQL/config errors:
 status|message
 error|<error message>
 ```
-

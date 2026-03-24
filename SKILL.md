@@ -1,4 +1,4 @@
-﻿---
+---
 name: db-cli
 description: Execute SQL from command line for MySQL and PostgreSQL and return pipe-delimited output. Use when the user needs to run SQL quickly via `db-cli --exec`, list tables, inspect data, run write operations, or capture structured `status|message` errors without writing code.
 ---
@@ -47,11 +47,13 @@ Short form:
 db-cli --vendor my -u <user> -p <password> -d <database> -e "<sql>"
 ```
 
-Version:
+Version and skill:
 
 ```bash
 db-cli --version
 db-cli -v
+db-cli --skill
+db-cli -s
 ```
 
 ## Options
@@ -64,6 +66,7 @@ db-cli -v
 - `--database, --db, -d <value>`
 - `--exec, -e "<sql>"`
 - `--version, -v`
+- `--skill, -s` (print `SKILL.md`)
 
 ## Environment fallback
 

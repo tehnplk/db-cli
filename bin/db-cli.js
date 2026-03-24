@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 "use strict";
 
+const fs = require("node:fs");
+const path = require("node:path");
 const mysql = require("mysql2/promise");
 const { Client } = require("pg");
 const { version } = require("../package.json");
@@ -68,6 +70,11 @@ function parseArgs(argv) {
 
     if (token === "--version" || token === "-v") {
       args.version = true;
+      continue;
+    }
+
+    if (token === "--skill" || token === "-s") {
+      args.skill = true;
     }
   }
 
@@ -88,6 +95,7 @@ function printHelp() {
   console.log('  db-cli --vendor postgres --host localhost --port 5432 --user postgres --password secret --database app --exec "SELECT * FROM users"');
   console.log('  db-cli --vendor mysql -u root -p secret -d app -e "SELECT * FROM users"');
   console.log("  db-cli --version");
+  console.log("  db-cli --skill");
   console.log("");
   console.log("Command options:");
   console.log("  --vendor <mysql|postgres>  Database vendor (aliases: my, pg; default: mysql)");
@@ -98,6 +106,7 @@ function printHelp() {
   console.log("  --database, --db, -d       Database name");
   console.log('  --exec, -e "sql"           SQL to execute');
   console.log("  --version, -v              Show CLI version");
+  console.log("  --skill, -s                Print SKILL.md");
   console.log("");
   console.log("Environment variables:");
   console.log("  DB_VENDOR (default: mysql)");
@@ -106,6 +115,12 @@ function printHelp() {
   console.log("  DB_USER (required)");
   console.log("  DB_PASSWORD (default: empty)");
   console.log("  DB_NAME (required)");
+}
+
+function printSkill() {
+  const skillPath = path.resolve(__dirname, "..", "SKILL.md");
+  const content = fs.readFileSync(skillPath, "utf8");
+  console.log(content);
 }
 
 function toCell(value) {
@@ -240,6 +255,11 @@ async function run() {
     process.exit(0);
   }
 
+  if (args.skill) {
+    printSkill();
+    process.exit(0);
+  }
+
   if (args.help || !args.execSql) {
     printHelp();
     process.exit(args.help ? 0 : 1);
@@ -264,5 +284,3 @@ async function run() {
 }
 
 run();
-
-
