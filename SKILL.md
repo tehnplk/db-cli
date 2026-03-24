@@ -47,6 +47,35 @@ Short form:
 db-cli --vendor mysql -u <user> -p <password> -d <database> -e "<sql>"
 ```
 
+Version:
+
+```bash
+db-cli --version
+db-cli -v
+```
+
+## Options
+
+- `--vendor <mysql|postgres>` (supports `postgresql`, `pg`; default `mysql`)
+- `--host <value>`
+- `--port <value>` (default `3306` for mysql, `5432` for postgres)
+- `--user, -u <value>`
+- `--password, -p <value>`
+- `--database, --db, -d <value>`
+- `--exec, -e "<sql>"`
+- `--version, -v`
+
+## Environment fallback
+
+If options are not provided, use:
+
+- `DB_VENDOR`
+- `DB_HOST`
+- `DB_PORT`
+- `DB_USER`
+- `DB_PASSWORD`
+- `DB_NAME`
+
 ## Output contract
 
 Select query:
