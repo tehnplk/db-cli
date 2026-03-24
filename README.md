@@ -33,24 +33,25 @@ db-cli.cmd -v
 MySQL:
 
 ```bash
-db-cli --vendor mysql --host localhost --port 3306 --user root --password secret --database app --exec "SELECT id, name FROM users"
+db-cli --engine mysql --host localhost --port 3306 --user root --password secret --database app --exec "SELECT id, name FROM users"
 ```
 
 PostgreSQL:
 
 ```bash
-db-cli --vendor postgres --host localhost --port 5432 --user postgres --password secret --database app --exec "SELECT id, name FROM users"
+db-cli --engine postgres --host localhost --port 5432 --user postgres --password secret --database app --exec "SELECT id, name FROM users"
 ```
 
 Short options:
 
 ```bash
-db-cli --vendor my -u root -p secret -d app -e "SELECT id, name FROM users"
+db-cli --engine my -u root -p secret -d app -e "SELECT id, name FROM users"
 ```
 
 ## Options
 
-- `--vendor <mysql|postgres>` (aliases: `my`, `pg`; default: `mysql`)
+- `--engine <mysql|postgres>` (aliases: `my`, `pg`; default: `mysql`)
+- `--vendor <mysql|postgres>` deprecated alias of `--engine`
 - `--host <value>`
 - `--port <value>`
 - `--user, -u <value>`
@@ -64,7 +65,8 @@ db-cli --vendor my -u root -p secret -d app -e "SELECT id, name FROM users"
 
 If an option is not provided in command line, it falls back to env vars:
 
-- `DB_VENDOR` (default `mysql`)
+- `DB_ENGINE` (default `mysql`)
+- `DB_VENDOR` deprecated alias of `DB_ENGINE`
 - `DB_HOST` (default `localhost`)
 - `DB_PORT` (default `3306` for mysql, `5432` for postgres)
 - `DB_USER`
@@ -94,3 +96,4 @@ For SQL/config errors:
 status|message
 error|<error message>
 ```
+

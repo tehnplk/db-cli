@@ -32,19 +32,19 @@ db-cli.cmd --help
 MySQL:
 
 ```bash
-db-cli --vendor mysql --host <host> --port <port> --user <user> --password <password> --database <database> --exec "<sql>"
+db-cli --engine mysql --host <host> --port <port> --user <user> --password <password> --database <database> --exec "<sql>"
 ```
 
 PostgreSQL:
 
 ```bash
-db-cli --vendor postgres --host <host> --port <port> --user <user> --password <password> --database <database> --exec "<sql>"
+db-cli --engine postgres --host <host> --port <port> --user <user> --password <password> --database <database> --exec "<sql>"
 ```
 
 Short form:
 
 ```bash
-db-cli --vendor my -u <user> -p <password> -d <database> -e "<sql>"
+db-cli --engine my -u <user> -p <password> -d <database> -e "<sql>"
 ```
 
 Version and skill:
@@ -58,7 +58,8 @@ db-cli -s
 
 ## Options
 
-- `--vendor <mysql|postgres>` (supports `my`, `postgresql`, `pg`; default `mysql`)
+- `--engine <mysql|postgres>` (supports `my`, `postgresql`, `pg`; default `mysql`)
+- `--vendor <mysql|postgres>` deprecated alias of `--engine`
 - `--host <value>`
 - `--port <value>` (default `3306` for mysql, `5432` for postgres)
 - `--user, -u <value>`
@@ -72,7 +73,8 @@ db-cli -s
 
 If options are not provided, use:
 
-- `DB_VENDOR`
+- `DB_ENGINE`
+- `DB_VENDOR` deprecated alias of `DB_ENGINE`
 - `DB_HOST`
 - `DB_PORT`
 - `DB_USER`
@@ -117,3 +119,4 @@ SQL/config error:
 status|message
 error|<error message>
 ```
+

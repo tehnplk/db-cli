@@ -15,7 +15,7 @@ function parseArgs(argv) {
     user: null,
     password: null,
     database: null,
-    vendor: null
+    engine: null
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -57,8 +57,8 @@ function parseArgs(argv) {
       continue;
     }
 
-    if (token === "--vendor") {
-      args.vendor = argv[i + 1] || null;
+    if (token === "--engine" || token === "--vendor") {
+      args.engine = argv[i + 1] || null;
       i += 1;
       continue;
     }
@@ -81,7 +81,7 @@ function parseArgs(argv) {
   return args;
 }
 
-function normalizeVendor(input) {
+function normalizeEngine(input) {
   const raw = String(input || "mysql").toLowerCase();
 
   if (raw === "mysql" || raw === "my") return "mysql";
@@ -91,14 +91,15 @@ function normalizeVendor(input) {
 
 function printHelp() {
   console.log("Usage:");
-  console.log('  db-cli --vendor mysql --host localhost --port 3306 --user root --password secret --database app --exec "SELECT * FROM users"');
-  console.log('  db-cli --vendor postgres --host localhost --port 5432 --user postgres --password secret --database app --exec "SELECT * FROM users"');
-  console.log('  db-cli --vendor mysql -u root -p secret -d app -e "SELECT * FROM users"');
+  console.log('  db-cli --engine mysql --host localhost --port 3306 --user root --password secret --database app --exec "SELECT * FROM users"');
+  console.log('  db-cli --engine postgres --host localhost --port 5432 --user postgres --password secret --database app --exec "SELECT * FROM users"');
+  console.log('  db-cli --engine mysql -u root -p secret -d app -e "SELECT * FROM users"');
   console.log("  db-cli --version");
   console.log("  db-cli --skill");
   console.log("");
   console.log("Command options:");
-  console.log("  --vendor <mysql|postgres>  Database vendor (aliases: my, pg; default: mysql)");
+  console.log("  --engine <mysql|postgres>  Database engine (aliases: my, pg; default: mysql)");
+  console.log("  --vendor <mysql|postgres>  Deprecated alias for --engine");
   console.log("  --host <value>             Database host");
   console.log("  --port <value>             Database port");
   console.log("  --user, -u <value>         Database user");
@@ -109,7 +110,8 @@ function printHelp() {
   console.log("  --skill, -s                Print SKILL.md");
   console.log("");
   console.log("Environment variables:");
-  console.log("  DB_VENDOR (default: mysql)");
+  console.log("  DB_ENGINE (default: mysql)");
+  console.log("  DB_VENDOR (deprecated alias of DB_ENGINE)");
   console.log("  DB_HOST (default: localhost)");
   console.log("  DB_PORT (default: 3306 for mysql, 5432 for postgres)");
   console.log("  DB_USER (required)");
@@ -157,13 +159,13 @@ function printError(message) {
 }
 
 function resolveConfig(args) {
-  const vendor = normalizeVendor(args.vendor || process.env.DB_VENDOR || "mysql");
+  const engine = normalizeEngine(args.engine || process.env.DB_ENGINE || process.env.DB_VENDOR || "mysql");
 
-  if (!vendor) {
-    throw new Error("Invalid --vendor. Use mysql/my or postgres/pg.");
+  if (!engine) {
+    throw new Error("Invalid --engine. Use mysql/my or postgres/pg.");
   }
 
-  const defaultPort = vendor === "postgres" ? 5432 : 3306;
+  const defaultPort = engine === "postgres" ? 5432 : 3306;
   const port = Number(args.port || process.env.DB_PORT || defaultPort);
 
   if (!Number.isFinite(port)) {
@@ -171,7 +173,7 @@ function resolveConfig(args) {
   }
 
   const config = {
-    vendor,
+    engine,
     host: args.host || process.env.DB_HOST || "localhost",
     port,
     user: args.user || process.env.DB_USER,
@@ -267,7 +269,7 @@ async function run() {
 
   try {
     const config = resolveConfig(args);
-    const result = config.vendor === "postgres"
+    const result = config.engine === "postgres"
       ? await executePostgres(config, args.execSql)
       : await executeMysql(config, args.execSql);
 
