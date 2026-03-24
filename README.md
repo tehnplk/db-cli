@@ -48,6 +48,13 @@ Short options:
 db-cli --engine my -u root -p secret -d app -e "SELECT id, name FROM users"
 ```
 
+Multistatement in one `-e`:
+
+```bash
+db-cli --engine my -u root -p secret -d app -e "CREATE TABLE t(id INT); INSERT INTO t VALUES (1); SELECT * FROM t;"
+db-cli --engine pg -u postgres -p secret -d app -e "CREATE TABLE t(id INT); INSERT INTO t VALUES (1); SELECT * FROM t;"
+```
+
 ## Options
 
 - `--engine <mysql|postgres>` (aliases: `my`, `pg`; default: `mysql`)
@@ -56,7 +63,7 @@ db-cli --engine my -u root -p secret -d app -e "SELECT id, name FROM users"
 - `--user, -u <value>`
 - `--password, -p <value>`
 - `--database, --db, -d <value>`
-- `--exec, -e "sql"`
+- `--exec, -e "sql"` (single `-e` only, use `;` for multistatement)
 - `--version, -v`
 - `--skill, -s` (print `SKILL.md`)
 

@@ -10,6 +10,7 @@ const { version } = require("../package.json");
 function parseArgs(argv) {
   const args = {
     execSql: null,
+    repeatedExec: false,
     host: null,
     port: null,
     user: null,
@@ -23,7 +24,14 @@ function parseArgs(argv) {
     const token = argv[i];
 
     if (token === "--exec" || token === "-e") {
-      args.execSql = argv[i + 1] || null;
+      const sql = argv[i + 1] || null;
+      if (sql) {
+        if (args.execSql !== null) {
+          args.repeatedExec = true;
+        } else {
+          args.execSql = sql;
+        }
+      }
       i += 1;
       continue;
     }
@@ -98,7 +106,9 @@ function normalizeEngine(input) {
 function printHelp() {
   console.log("Usage:");
   console.log('  db-cli -g mysql -H localhost -P 3306 -u root -p secret -d app -e "SELECT * FROM users"');
+  console.log('  db-cli -g my -u root -d app -e "CREATE TABLE t(id INT); INSERT INTO t VALUES (1); SELECT * FROM t;"');
   console.log('  db-cli -g postgres -H localhost -P 5432 -u postgres -p secret -d app -e "SELECT * FROM users"');
+  console.log('  db-cli -g pg -u postgres -d app -e "CREATE TABLE t(id INT); INSERT INTO t VALUES (1); SELECT * FROM t;"');
   console.log('  db-cli --engine mysql --host localhost --port 3306 --user root --password secret --database app --exec "SELECT * FROM users"');
   console.log('  db-cli --engine postgres --host localhost --port 5432 --user postgres --password secret --database app --exec "SELECT * FROM users"');
   console.log("  db-cli -v | --version");
@@ -111,7 +121,7 @@ function printHelp() {
   console.log("  -u, --user <value>             Database user");
   console.log("  -p, --password <value>         Database password");
   console.log("  -d, --database, --db <value>   Database name");
-  console.log('  -e, --exec "sql"               SQL to execute');
+  console.log('  -e, --exec "sql"               SQL to execute (single -e only, use ";" for multistatement)');
   console.log("  -v, --version                  Show CLI version");
   console.log("  -s, --skill                    Print SKILL.md");
   console.log("  -h, --help                     Show help");
@@ -171,6 +181,127 @@ function printError(message) {
   console.log(`error|${toCell(message || "Unknown error")}`);
 }
 
+function splitSqlStatements(sqlText) {
+  const statements = [];
+  let current = "";
+  let quoteChar = "";
+  let inLineComment = false;
+  let inBlockComment = false;
+  let dollarTag = "";
+
+  for (let i = 0; i < sqlText.length; i += 1) {
+    const ch = sqlText[i];
+    const next = i + 1 < sqlText.length ? sqlText[i + 1] : "";
+
+    current += ch;
+
+    if (inLineComment) {
+      if (ch === "\n") {
+        inLineComment = false;
+      }
+      continue;
+    }
+
+    if (inBlockComment) {
+      if (ch === "*" && next === "/") {
+        current += "/";
+        i += 1;
+        inBlockComment = false;
+      }
+      continue;
+    }
+
+    if (dollarTag) {
+      if (sqlText.startsWith(dollarTag, i)) {
+        if (dollarTag.length > 1) {
+          current += dollarTag.slice(1);
+        }
+        i += dollarTag.length - 1;
+        dollarTag = "";
+      }
+      continue;
+    }
+
+    if (quoteChar) {
+      if (ch === "\\" && quoteChar === "'" && i + 1 < sqlText.length) {
+        current += sqlText[i + 1];
+        i += 1;
+        continue;
+      }
+
+      if (ch === quoteChar) {
+        if ((quoteChar === "'" || quoteChar === "\"") && next === quoteChar) {
+          current += next;
+          i += 1;
+          continue;
+        }
+        quoteChar = "";
+      }
+      continue;
+    }
+
+    if (ch === "-" && next === "-") {
+      current += "-";
+      i += 1;
+      inLineComment = true;
+      continue;
+    }
+
+    if (ch === "/" && next === "*") {
+      current += "*";
+      i += 1;
+      inBlockComment = true;
+      continue;
+    }
+
+    if (ch === "'" || ch === "\"" || ch === "`") {
+      quoteChar = ch;
+      continue;
+    }
+
+    if (ch === "$") {
+      const rest = sqlText.slice(i);
+      const match = rest.match(/^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/);
+      if (match) {
+        dollarTag = match[0];
+        if (dollarTag.length > 1) {
+          current += dollarTag.slice(1);
+        }
+        i += dollarTag.length - 1;
+        continue;
+      }
+    }
+
+    if (ch === ";") {
+      const trimmed = current.trim();
+      if (trimmed !== ";") {
+        const statement = trimmed.slice(0, -1).trim();
+        if (statement) {
+          statements.push(statement);
+        }
+      }
+      current = "";
+    }
+  }
+
+  const tail = current.trim();
+  if (tail) {
+    statements.push(tail);
+  }
+
+  return statements;
+}
+
+function printResult(result) {
+  if (result.type === "rows") {
+    printTable(result.rows, result.fields);
+    return;
+  }
+
+  console.log("status|affectedRows|insertId");
+  console.log(`ok|${result.affectedRows}|${result.insertId}`);
+}
+
 function resolveConfig(args) {
   const engine = normalizeEngine(args.engine || process.env.DB_ENGINE || "mysql");
 
@@ -201,8 +332,9 @@ function resolveConfig(args) {
   return config;
 }
 
-async function executeMysql(config, sql) {
+async function executeMysql(config, sqlList) {
   let connection;
+  const results = [];
   try {
     connection = await mysql.createConnection({
       host: config.host,
@@ -213,17 +345,22 @@ async function executeMysql(config, sql) {
       multipleStatements: false
     });
 
-    const [rows, fields] = await connection.execute(sql);
+    for (const sql of sqlList) {
+      const [rows, fields] = await connection.execute(sql);
 
-    if (Array.isArray(rows) && Array.isArray(fields)) {
-      return { type: "rows", rows, fields };
+      if (Array.isArray(rows) && Array.isArray(fields)) {
+        results.push({ type: "rows", rows, fields });
+        continue;
+      }
+
+      results.push({
+        type: "status",
+        affectedRows: rows.affectedRows || 0,
+        insertId: rows.insertId || ""
+      });
     }
 
-    return {
-      type: "status",
-      affectedRows: rows.affectedRows || 0,
-      insertId: rows.insertId || ""
-    };
+    return results;
   } finally {
     if (connection) {
       await connection.end();
@@ -231,7 +368,7 @@ async function executeMysql(config, sql) {
   }
 }
 
-async function executePostgres(config, sql) {
+async function executePostgres(config, sqlList) {
   const client = new Client({
     host: config.host,
     port: config.port,
@@ -242,17 +379,24 @@ async function executePostgres(config, sql) {
 
   try {
     await client.connect();
-    const result = await client.query(sql);
+    const results = [];
 
-    if (Array.isArray(result.rows) && result.fields && result.fields.length > 0) {
-      return { type: "rows", rows: result.rows, fields: result.fields };
+    for (const sql of sqlList) {
+      const result = await client.query(sql);
+
+      if (Array.isArray(result.rows) && result.fields && result.fields.length > 0) {
+        results.push({ type: "rows", rows: result.rows, fields: result.fields });
+        continue;
+      }
+
+      results.push({
+        type: "status",
+        affectedRows: result.rowCount || 0,
+        insertId: ""
+      });
     }
 
-    return {
-      type: "status",
-      affectedRows: result.rowCount || 0,
-      insertId: ""
-    };
+    return results;
   } finally {
     try {
       await client.end();
@@ -280,22 +424,29 @@ async function run() {
     process.exit(1);
   }
 
-  if (args.help || !args.execSql) {
+  if (args.repeatedExec) {
+    printError('Multiple --exec/-e are not allowed. Use one -e with ";" for multistatement.');
+    process.exit(1);
+  }
+
+  const sqlStatements = splitSqlStatements(args.execSql || "");
+
+  if (args.help || sqlStatements.length === 0) {
     printHelp();
     process.exit(args.help ? 0 : 1);
   }
 
   try {
     const config = resolveConfig(args);
-    const result = config.engine === "postgres"
-      ? await executePostgres(config, args.execSql)
-      : await executeMysql(config, args.execSql);
+    const results = config.engine === "postgres"
+      ? await executePostgres(config, sqlStatements)
+      : await executeMysql(config, sqlStatements);
 
-    if (result.type === "rows") {
-      printTable(result.rows, result.fields);
-    } else {
-      console.log("status|affectedRows|insertId");
-      console.log(`ok|${result.affectedRows}|${result.insertId}`);
+    for (let i = 0; i < results.length; i += 1) {
+      if (results.length > 1) {
+        console.log(`command|${i + 1}`);
+      }
+      printResult(results[i]);
     }
   } catch (error) {
     printError(getErrorMessage(error));
