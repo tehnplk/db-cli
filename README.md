@@ -2,6 +2,32 @@
 
 Simple Node.js CLI for executing SQL on MySQL and PostgreSQL.
 
+## Installation
+
+Install globally from GitHub:
+
+```bash
+npm i -g github:tehnplk/db-cli
+```
+
+Update to latest version:
+
+```bash
+npm i -g github:tehnplk/db-cli
+```
+
+Check installed version:
+
+```bash
+db-cli -v
+```
+
+If `db-cli` is not found on Windows, use:
+
+```bash
+db-cli.cmd -v
+```
+
 ## Usage
 
 MySQL:
