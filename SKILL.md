@@ -1,6 +1,6 @@
 ﻿---
 name: db-cli
-description: Execute SQL from command line for MySQL and PostgreSQL and return pipe-delimited output. Use when the user needs to run SQL quickly via `db-cli --exec`, list tables, inspect data, or capture structured `status|message` errors without writing code.
+description: Execute SQL from command line for MySQL and PostgreSQL and return pipe-delimited output. Use when the user needs to run SQL quickly via `db-cli --exec`, list tables, inspect data, run write operations, or capture structured `status|message` errors without writing code.
 ---
 
 # db-cli
@@ -44,7 +44,7 @@ db-cli --vendor postgres --host <host> --port <port> --user <user> --password <p
 Short form:
 
 ```bash
-db-cli --vendor mysql -u <user> -p <password> -d <database> -e "<sql>"
+db-cli --vendor my -u <user> -p <password> -d <database> -e "<sql>"
 ```
 
 Version:
@@ -56,7 +56,7 @@ db-cli -v
 
 ## Options
 
-- `--vendor <mysql|postgres>` (supports `postgresql`, `pg`; default `mysql`)
+- `--vendor <mysql|postgres>` (supports `my`, `postgresql`, `pg`; default `mysql`)
 - `--host <value>`
 - `--port <value>` (default `3306` for mysql, `5432` for postgres)
 - `--user, -u <value>`
@@ -75,6 +75,22 @@ If options are not provided, use:
 - `DB_USER`
 - `DB_PASSWORD`
 - `DB_NAME`
+
+## Supported SQL operations
+
+Supported on both MySQL and PostgreSQL:
+
+- `CREATE`
+- `INSERT`
+- `UPDATE`
+- `DELETE`
+- `TRUNCATE`
+- `DROP`
+
+Upsert syntax by vendor:
+
+- MySQL: `INSERT ... ON DUPLICATE KEY UPDATE ...`
+- PostgreSQL: `INSERT ... ON CONFLICT (...) DO UPDATE ...`
 
 ## Output contract
 
