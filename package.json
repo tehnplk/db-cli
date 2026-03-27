@@ -1,6 +1,6 @@
 {
     "name": "db-cli",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "description": "CLI for MySQL and PostgreSQL SQL execution",
     "bin": {
         "db-cli": "bin/db-cli.js"
