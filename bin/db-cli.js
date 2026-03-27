@@ -11,6 +11,7 @@ function parseArgs(argv) {
   const args = {
     execSql: null,
     repeatedExec: false,
+    output: null,
     host: null,
     port: null,
     user: null,
@@ -66,6 +67,12 @@ function parseArgs(argv) {
       continue;
     }
 
+    if (token === "--output" || token === "-o") {
+      args.output = argv[i + 1] || null;
+      i += 1;
+      continue;
+    }
+
     if (token === "--engine" || token === "-g") {
       args.engine = argv[i + 1] || null;
       i += 1;
@@ -109,6 +116,8 @@ function printHelp() {
   console.log('  db-cli -g my -u root -d app -e "CREATE TABLE t(id INT); INSERT INTO t VALUES (1); SELECT * FROM t;"');
   console.log('  db-cli -g postgres -H localhost -P 5432 -u postgres -p secret -d app -e "SELECT * FROM users"');
   console.log('  db-cli -g pg -u postgres -d app -e "CREATE TABLE t(id INT); INSERT INTO t VALUES (1); SELECT * FROM t;"');
+  console.log('  db-cli -g my -u root -d app -e "SELECT * FROM users" --output users.txt');
+  console.log('  db-cli -g my -u root -d app -e "SELECT * FROM users" > users.txt');
   console.log('  db-cli --engine mysql --host localhost --port 3306 --user root --password secret --database app --exec "SELECT * FROM users"');
   console.log('  db-cli --engine postgres --host localhost --port 5432 --user postgres --password secret --database app --exec "SELECT * FROM users"');
   console.log("  db-cli -v | --version");
@@ -122,6 +131,7 @@ function printHelp() {
   console.log("  -p, --password <value>         Database password");
   console.log("  -d, --database, --db <value>   Database name");
   console.log('  -e, --exec "sql"               SQL to execute (single -e only, use ";" for multistatement)');
+  console.log("  -o, --output <path>            Write output to UTF-8 text file (pipe-delimited)");
   console.log("  -v, --version                  Show CLI version");
   console.log("  -s, --skill                    Print SKILL.md");
   console.log("  -h, --help                     Show help");
@@ -166,19 +176,83 @@ function getErrorMessage(error) {
   return String(error);
 }
 
-function printTable(rows, fields) {
-  const headers = fields.map((field) => field.name);
-  console.log(headers.join("|"));
+function collectHeaders(rows, fields) {
+  let headers = fields
+    .map((field) => (field && typeof field.name === "string" ? field.name : ""))
+    .filter(Boolean);
 
-  for (const row of rows) {
-    const line = headers.map((header) => toCell(row[header])).join("|");
-    console.log(line);
+  if (headers.length === 0 && Array.isArray(rows) && rows.length > 0 && rows[0] && typeof rows[0] === "object" && !Array.isArray(rows[0])) {
+    headers = Object.keys(rows[0]);
   }
+
+  return headers;
 }
 
-function printError(message) {
-  console.log("status|message");
-  console.log(`error|${toCell(message || "Unknown error")}`);
+function buildRowsOutput(rows, fields) {
+  const headers = collectHeaders(rows, fields);
+
+  if (headers.length === 0) {
+    return buildErrorOutput("Unable to render result table");
+  }
+
+  const lines = [headers.join("|")];
+  for (const row of rows) {
+    lines.push(headers.map((header) => toCell(row[header])).join("|"));
+  }
+  return lines;
+}
+
+function buildStatusOutput(result) {
+  return [
+    "status|affectedRows|insertId",
+    `ok|${result.affectedRows}|${result.insertId}`
+  ];
+}
+
+function buildErrorOutput(message) {
+  const safeMessage = message || "Unknown error";
+  return [
+    "status|message",
+    `error|${toCell(safeMessage)}`
+  ];
+}
+
+function buildResultOutput(result) {
+  if (result.type === "rows") {
+    return buildRowsOutput(result.rows, result.fields);
+  }
+  return buildStatusOutput(result);
+}
+
+function writeOutput(lines, outputPath) {
+  const payload = `${lines.join("\n")}\n`;
+  if (outputPath) {
+    fs.writeFileSync(outputPath, payload, "utf8");
+    return;
+  }
+  process.stdout.write(payload);
+}
+
+function asMysqlRowsResult(rows, fields) {
+  if (!Array.isArray(rows) || !Array.isArray(fields)) {
+    return null;
+  }
+
+  // Standard SELECT shape: fields is ColumnDefinition[]
+  if (fields.length > 0 && fields.every((field) => field && typeof field.name === "string")) {
+    return { rows, fields };
+  }
+
+  // Stored procedure/CALL shape: fields is ColumnDefinition[][]
+  for (let i = 0; i < fields.length; i += 1) {
+    const fieldSet = fields[i];
+    const rowSet = rows[i];
+    if (Array.isArray(fieldSet) && fieldSet.length > 0 && Array.isArray(rowSet)) {
+      return { rows: rowSet, fields: fieldSet };
+    }
+  }
+
+  return null;
 }
 
 function splitSqlStatements(sqlText) {
@@ -188,6 +262,40 @@ function splitSqlStatements(sqlText) {
   let inLineComment = false;
   let inBlockComment = false;
   let dollarTag = "";
+  let wordBuffer = "";
+  let createWindow = 0;
+  let inCompoundObject = false;
+  let beginDepth = 0;
+
+  function consumeWord() {
+    if (!wordBuffer) return;
+    const word = wordBuffer.toLowerCase();
+    wordBuffer = "";
+
+    if (createWindow > 0) {
+      createWindow -= 1;
+    }
+
+    if (word === "create") {
+      createWindow = 10;
+      return;
+    }
+
+    if (createWindow > 0 && (word === "procedure" || word === "function" || word === "trigger" || word === "event")) {
+      inCompoundObject = true;
+      beginDepth = 0;
+      createWindow = 0;
+      return;
+    }
+
+    if (inCompoundObject) {
+      if (word === "begin") {
+        beginDepth += 1;
+      } else if (word === "end" && beginDepth > 0) {
+        beginDepth -= 1;
+      }
+    }
+  }
 
   for (let i = 0; i < sqlText.length; i += 1) {
     const ch = sqlText[i];
@@ -240,6 +348,12 @@ function splitSqlStatements(sqlText) {
       continue;
     }
 
+    if ((ch >= "A" && ch <= "Z") || (ch >= "a" && ch <= "z") || ch === "_") {
+      wordBuffer += ch;
+    } else if (wordBuffer) {
+      consumeWord();
+    }
+
     if (ch === "-" && next === "-") {
       current += "-";
       i += 1;
@@ -273,6 +387,10 @@ function splitSqlStatements(sqlText) {
     }
 
     if (ch === ";") {
+      if (inCompoundObject && beginDepth > 0) {
+        continue;
+      }
+
       const trimmed = current.trim();
       if (trimmed !== ";") {
         const statement = trimmed.slice(0, -1).trim();
@@ -281,7 +399,17 @@ function splitSqlStatements(sqlText) {
         }
       }
       current = "";
+      wordBuffer = "";
+      if (inCompoundObject) {
+        inCompoundObject = false;
+        beginDepth = 0;
+      }
+      createWindow = 0;
     }
+  }
+
+  if (wordBuffer) {
+    consumeWord();
   }
 
   const tail = current.trim();
@@ -290,16 +418,6 @@ function splitSqlStatements(sqlText) {
   }
 
   return statements;
-}
-
-function printResult(result) {
-  if (result.type === "rows") {
-    printTable(result.rows, result.fields);
-    return;
-  }
-
-  console.log("status|affectedRows|insertId");
-  console.log(`ok|${result.affectedRows}|${result.insertId}`);
 }
 
 function resolveConfig(args) {
@@ -346,10 +464,11 @@ async function executeMysql(config, sqlList) {
     });
 
     for (const sql of sqlList) {
-      const [rows, fields] = await connection.execute(sql);
+      const [rows, fields] = await connection.query(sql);
 
-      if (Array.isArray(rows) && Array.isArray(fields)) {
-        results.push({ type: "rows", rows, fields });
+      const rowsResult = asMysqlRowsResult(rows, fields);
+      if (rowsResult) {
+        results.push({ type: "rows", rows: rowsResult.rows, fields: rowsResult.fields });
         continue;
       }
 
@@ -420,12 +539,12 @@ async function run() {
   }
 
   if (args.invalidOption) {
-    printError(`Unknown option: ${args.invalidOption}. Run --help or --skill for usage.`);
+    writeOutput(buildErrorOutput(`Unknown option: ${args.invalidOption}. Run --help or --skill for usage.`), args.output);
     process.exit(1);
   }
 
   if (args.repeatedExec) {
-    printError('Multiple --exec/-e are not allowed. Use one -e with ";" for multistatement.');
+    writeOutput(buildErrorOutput('Multiple --exec/-e are not allowed. Use one -e with ";" for multistatement.'), args.output);
     process.exit(1);
   }
 
@@ -442,14 +561,16 @@ async function run() {
       ? await executePostgres(config, sqlStatements)
       : await executeMysql(config, sqlStatements);
 
+    const lines = [];
     for (let i = 0; i < results.length; i += 1) {
       if (results.length > 1) {
-        console.log(`command|${i + 1}`);
+        lines.push(`command|${i + 1}`);
       }
-      printResult(results[i]);
+      lines.push(...buildResultOutput(results[i]));
     }
+    writeOutput(lines, args.output);
   } catch (error) {
-    printError(getErrorMessage(error));
+    writeOutput(buildErrorOutput(getErrorMessage(error)), args.output);
     process.exit(1);
   }
 }

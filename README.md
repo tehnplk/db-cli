@@ -55,6 +55,13 @@ db-cli --engine my -u root -p secret -d app -e "CREATE TABLE t(id INT); INSERT I
 db-cli --engine pg -u postgres -p secret -d app -e "CREATE TABLE t(id INT); INSERT INTO t VALUES (1); SELECT * FROM t;"
 ```
 
+Export result to `.txt` file (pipe-delimited):
+
+```bash
+db-cli --engine my -u root -p secret -d app -e "SELECT id, name FROM users" --output users.txt
+db-cli --engine my -u root -p secret -d app -e "SELECT id, name FROM users" > users.txt
+```
+
 ## Options
 
 - `--engine <mysql|postgres>` (aliases: `my`, `pg`; default: `mysql`)
@@ -64,6 +71,7 @@ db-cli --engine pg -u postgres -p secret -d app -e "CREATE TABLE t(id INT); INSE
 - `--password, -p <value>`
 - `--database, --db, -d <value>`
 - `--exec, -e "sql"` (single `-e` only, use `;` for multistatement)
+- `--output, -o <path>` (write UTF-8 text file, still pipe-delimited)
 - `--version, -v`
 - `--skill, -s` (print `SKILL.md`)
 
@@ -87,6 +95,8 @@ id|name
 1|Alice
 2|Bob
 ```
+
+When using `--output file.txt` (or shell redirection `>`), output is saved as UTF-8, so Thai text remains readable.
 
 For non-select SQL (insert/update/delete/create/drop/truncate):
 

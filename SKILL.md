@@ -35,6 +35,13 @@ Short form (recommended):
 db-cli -g my -H <host> -P <port> -u <user> -p <password> -d <database> -e "<sql>"
 ```
 
+Export to UTF-8 `.txt` file (pipe-delimited):
+
+```bash
+db-cli -g my -H <host> -P <port> -u <user> -p <password> -d <database> -e "<sql>" -o result.txt
+db-cli -g my -H <host> -P <port> -u <user> -p <password> -d <database> -e "<sql>" > result.txt
+```
+
 Long form:
 
 MySQL:
@@ -66,6 +73,7 @@ db-cli --skill
 - `-p, --password <value>`
 - `-d, --database, --db <value>`
 - `-e, --exec "<sql>"`
+- `-o, --output <path>` (write UTF-8 text file, pipe-delimited)
 - `-v, --version`
 - `-s, --skill` (print `SKILL.md`)
 - `-h, --help`
@@ -118,3 +126,5 @@ SQL/config error:
 status|message
 error|<error message>
 ```
+
+When using `-o/--output`, the output file is written as UTF-8 so Thai text remains readable.
