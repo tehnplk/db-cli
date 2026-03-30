@@ -3,8 +3,6 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const mysql = require("mysql2/promise");
-const { Client } = require("pg");
 const { version } = require("../package.json");
 
 function parseArgs(argv) {
@@ -153,6 +151,8 @@ function printSkill() {
 
 function toCell(value) {
   if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
   if (value instanceof Date) return value.toISOString();
   if (Buffer.isBuffer(value)) return value.toString("utf8");
   if (typeof value === "object") return JSON.stringify(value);
@@ -188,49 +188,64 @@ function collectHeaders(rows, fields) {
   return headers;
 }
 
-function buildRowsOutput(rows, fields) {
-  const headers = collectHeaders(rows, fields);
-
-  if (headers.length === 0) {
-    return buildErrorOutput("Unable to render result table");
+class BufferedOutStream {
+  constructor(outputPath) {
+    this.outputPath = outputPath;
+    this.buffer = [];
+    if (outputPath) {
+      fs.writeFileSync(this.outputPath, "");
+    }
   }
 
-  const lines = [headers.join("|")];
-  for (const row of rows) {
-    lines.push(headers.map((header) => toCell(row[header])).join("|"));
+  write(text) {
+    this.buffer.push(text);
+    if (this.buffer.length >= 10000) {
+      this.flush();
+    }
   }
-  return lines;
+
+  flush() {
+    if (this.buffer.length > 0) {
+      const payload = this.buffer.join("");
+      if (this.outputPath) {
+        fs.appendFileSync(this.outputPath, payload, "utf8");
+      } else {
+        process.stdout.write(payload);
+      }
+      this.buffer.length = 0;
+    }
+  }
 }
 
-function buildStatusOutput(result) {
-  return [
-    "status|affectedRows|insertId",
-    `ok|${result.affectedRows}|${result.insertId}`
-  ];
-}
-
-function buildErrorOutput(message) {
-  const safeMessage = message || "Unknown error";
-  return [
-    "status|message",
-    `error|${toCell(safeMessage)}`
-  ];
-}
-
-function buildResultOutput(result) {
+function writeResultOutput(outStream, result) {
   if (result.type === "rows") {
-    return buildRowsOutput(result.rows, result.fields);
+    const headers = collectHeaders(result.rows, result.fields);
+    if (headers.length === 0) {
+      writeErrorOutput(outStream, "Unable to render result table");
+      return;
+    }
+
+    outStream.write(headers.join("|") + "\n");
+    const numHeaders = headers.length;
+    for (let i = 0; i < result.rows.length; i++) {
+      let line = "";
+      const row = result.rows[i];
+      for (let j = 0; j < numHeaders; j++) {
+        if (j > 0) line += "|";
+        line += toCell(row[headers[j]]);
+      }
+      outStream.write(line + "\n");
+    }
+  } else {
+    outStream.write("status|affectedRows|insertId\n");
+    outStream.write(`ok|${result.affectedRows}|${result.insertId}\n`);
   }
-  return buildStatusOutput(result);
 }
 
-function writeOutput(lines, outputPath) {
-  const payload = `${lines.join("\n")}\n`;
-  if (outputPath) {
-    fs.writeFileSync(outputPath, payload, "utf8");
-    return;
-  }
-  process.stdout.write(payload);
+function writeErrorOutput(outStream, message) {
+  const safeMessage = message || "Unknown error";
+  outStream.write("status|message\n");
+  outStream.write(`error|${toCell(safeMessage)}\n`);
 }
 
 function asMysqlRowsResult(rows, fields) {
@@ -451,6 +466,7 @@ function resolveConfig(args) {
 }
 
 async function executeMysql(config, sqlList) {
+  const mysql = require("mysql2/promise");
   let connection;
   const results = [];
   try {
@@ -488,6 +504,7 @@ async function executeMysql(config, sqlList) {
 }
 
 async function executePostgres(config, sqlList) {
+  const { Client } = require("pg");
   const client = new Client({
     host: config.host,
     port: config.port,
@@ -539,12 +556,16 @@ async function run() {
   }
 
   if (args.invalidOption) {
-    writeOutput(buildErrorOutput(`Unknown option: ${args.invalidOption}. Run --help or --skill for usage.`), args.output);
+    const outStream = new BufferedOutStream(args.output);
+    writeErrorOutput(outStream, `Unknown option: ${args.invalidOption}. Run --help or --skill for usage.`);
+    outStream.flush();
     process.exit(1);
   }
 
   if (args.repeatedExec) {
-    writeOutput(buildErrorOutput('Multiple --exec/-e are not allowed. Use one -e with ";" for multistatement.'), args.output);
+    const outStream = new BufferedOutStream(args.output);
+    writeErrorOutput(outStream, 'Multiple --exec/-e are not allowed. Use one -e with ";" for multistatement.');
+    outStream.flush();
     process.exit(1);
   }
 
@@ -555,22 +576,23 @@ async function run() {
     process.exit(args.help ? 0 : 1);
   }
 
+  const outStream = new BufferedOutStream(args.output);
   try {
     const config = resolveConfig(args);
     const results = config.engine === "postgres"
       ? await executePostgres(config, sqlStatements)
       : await executeMysql(config, sqlStatements);
 
-    const lines = [];
     for (let i = 0; i < results.length; i += 1) {
       if (results.length > 1) {
-        lines.push(`command|${i + 1}`);
+        outStream.write(`command|${i + 1}\n`);
       }
-      lines.push(...buildResultOutput(results[i]));
+      writeResultOutput(outStream, results[i]);
     }
-    writeOutput(lines, args.output);
+    outStream.flush();
   } catch (error) {
-    writeOutput(buildErrorOutput(getErrorMessage(error)), args.output);
+    writeErrorOutput(outStream, getErrorMessage(error));
+    outStream.flush();
     process.exit(1);
   }
 }
