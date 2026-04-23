@@ -128,3 +128,29 @@ error|<error message>
 ```
 
 Terminal, redirected, and `-o/--output` output is written as UTF-8 on Windows, Linux, and macOS so Thai text remains readable. On Windows PowerShell, terminal output automatically switches the console to UTF-8; set `DB_CLI_SKIP_UTF8_CONSOLE=1` to disable that behavior. On Linux, use a UTF-8 locale such as `LANG=C.UTF-8` or `LANG=en_US.UTF-8`.
+
+## OutputEncoding
+
+If Thai text looks corrupted in PowerShell or redirected files, force UTF-8 before running `db-cli`:
+
+```powershell
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+$OutputEncoding = [System.Text.UTF8Encoding]::new()
+chcp 65001
+db-cli -g my -H <host> -P <port> -u <user> -p <password> -d <database> -e "SELECT pname, fname, lname FROM person LIMIT 10"
+```
+
+For file export, prefer `--output` because `db-cli` writes the file as UTF-8 directly:
+
+```powershell
+db-cli -g my -H <host> -P <port> -u <user> -p <password> -d <database> -e "SELECT pname, fname, lname FROM person LIMIT 10" --output result.txt
+Get-Content -Encoding UTF8 result.txt
+```
+
+On Linux, make sure the shell locale is UTF-8:
+
+```bash
+export LANG=C.UTF-8
+export LC_ALL=C.UTF-8
+db-cli -g my -H <host> -P <port> -u <user> -p <password> -d <database> -e "SELECT pname, fname, lname FROM person LIMIT 10"
+```
