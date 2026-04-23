@@ -127,4 +127,4 @@ status|message
 error|<error message>
 ```
 
-When using `-o/--output`, the output file is written as UTF-8 so Thai text remains readable.
+Terminal, redirected, and `-o/--output` output is written as UTF-8 on Windows, Linux, and macOS so Thai text remains readable. On Windows PowerShell, terminal output automatically switches the console to UTF-8; set `DB_CLI_SKIP_UTF8_CONSOLE=1` to disable that behavior. On Linux, use a UTF-8 locale such as `LANG=C.UTF-8` or `LANG=en_US.UTF-8`.

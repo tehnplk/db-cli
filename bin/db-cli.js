@@ -3,7 +3,45 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { spawnSync } = require("node:child_process");
 const { version } = require("../package.json");
+
+let outputEncodingPrepared = false;
+
+function prepareOutputEncoding() {
+  if (outputEncodingPrepared) return;
+  outputEncodingPrepared = true;
+
+  if (typeof process.stdout.setDefaultEncoding === "function") {
+    process.stdout.setDefaultEncoding("utf8");
+  }
+  if (typeof process.stderr.setDefaultEncoding === "function") {
+    process.stderr.setDefaultEncoding("utf8");
+  }
+
+  if (process.platform !== "win32" || !process.stdout.isTTY || process.env.DB_CLI_SKIP_UTF8_CONSOLE === "1") {
+    return;
+  }
+
+  try {
+    const systemRoot = process.env.SystemRoot || process.env.windir;
+    const chcpPath = systemRoot ? path.join(systemRoot, "System32", "chcp.com") : "chcp.com";
+    spawnSync(chcpPath, ["65001"], {
+      stdio: "ignore",
+      windowsHide: true
+    });
+  } catch (_error) {
+    // Keep output flowing even if the host terminal blocks changing code pages.
+  }
+}
+
+function writeStdout(text) {
+  process.stdout.write(Buffer.from(String(text), "utf8"));
+}
+
+function writeStdoutLine(text = "") {
+  writeStdout(`${text}\n`);
+}
 
 function parseArgs(argv) {
   const args = {
@@ -109,44 +147,47 @@ function normalizeEngine(input) {
 }
 
 function printHelp() {
-  console.log("Usage:");
-  console.log('  db-cli -g mysql -H localhost -P 3306 -u root -p secret -d app -e "SELECT * FROM users"');
-  console.log('  db-cli -g my -u root -d app -e "CREATE TABLE t(id INT); INSERT INTO t VALUES (1); SELECT * FROM t;"');
-  console.log('  db-cli -g postgres -H localhost -P 5432 -u postgres -p secret -d app -e "SELECT * FROM users"');
-  console.log('  db-cli -g pg -u postgres -d app -e "CREATE TABLE t(id INT); INSERT INTO t VALUES (1); SELECT * FROM t;"');
-  console.log('  db-cli -g my -u root -d app -e "SELECT * FROM users" --output users.txt');
-  console.log('  db-cli -g my -u root -d app -e "SELECT * FROM users" > users.txt');
-  console.log('  db-cli --engine mysql --host localhost --port 3306 --user root --password secret --database app --exec "SELECT * FROM users"');
-  console.log('  db-cli --engine postgres --host localhost --port 5432 --user postgres --password secret --database app --exec "SELECT * FROM users"');
-  console.log("  db-cli -v | --version");
-  console.log("  db-cli -s | --skill");
-  console.log("");
-  console.log("Command options:");
-  console.log("  -g, --engine <mysql|postgres>  Database engine (aliases: my, pg; default: mysql)");
-  console.log("  -H, --host <value>             Database host");
-  console.log("  -P, --port <value>             Database port");
-  console.log("  -u, --user <value>             Database user");
-  console.log("  -p, --password <value>         Database password");
-  console.log("  -d, --database, --db <value>   Database name");
-  console.log('  -e, --exec "sql"               SQL to execute (single -e only, use ";" for multistatement)');
-  console.log("  -o, --output <path>            Write output to UTF-8 text file (pipe-delimited)");
-  console.log("  -v, --version                  Show CLI version");
-  console.log("  -s, --skill                    Print SKILL.md");
-  console.log("  -h, --help                     Show help");
-  console.log("");
-  console.log("Environment variables:");
-  console.log("  DB_ENGINE (default: mysql)");
-  console.log("  DB_HOST (default: localhost)");
-  console.log("  DB_PORT (default: 3306 for mysql, 5432 for postgres)");
-  console.log("  DB_USER (required)");
-  console.log("  DB_PASSWORD (default: empty)");
-  console.log("  DB_NAME (required)");
+  [
+    "Usage:",
+    '  db-cli -g mysql -H localhost -P 3306 -u root -p secret -d app -e "SELECT * FROM users"',
+    '  db-cli -g my -u root -d app -e "CREATE TABLE t(id INT); INSERT INTO t VALUES (1); SELECT * FROM t;"',
+    '  db-cli -g postgres -H localhost -P 5432 -u postgres -p secret -d app -e "SELECT * FROM users"',
+    '  db-cli -g pg -u postgres -d app -e "CREATE TABLE t(id INT); INSERT INTO t VALUES (1); SELECT * FROM t;"',
+    '  db-cli -g my -u root -d app -e "SELECT * FROM users" --output users.txt',
+    '  db-cli -g my -u root -d app -e "SELECT * FROM users" > users.txt',
+    '  db-cli --engine mysql --host localhost --port 3306 --user root --password secret --database app --exec "SELECT * FROM users"',
+    '  db-cli --engine postgres --host localhost --port 5432 --user postgres --password secret --database app --exec "SELECT * FROM users"',
+    "  db-cli -v | --version",
+    "  db-cli -s | --skill",
+    "",
+    "Command options:",
+    "  -g, --engine <mysql|postgres>  Database engine (aliases: my, pg; default: mysql)",
+    "  -H, --host <value>             Database host",
+    "  -P, --port <value>             Database port",
+    "  -u, --user <value>             Database user",
+    "  -p, --password <value>         Database password",
+    "  -d, --database, --db <value>   Database name",
+    '  -e, --exec "sql"               SQL to execute (single -e only, use ";" for multistatement)',
+    "  -o, --output <path>            Write output to UTF-8 text file (pipe-delimited)",
+    "  -v, --version                  Show CLI version",
+    "  -s, --skill                    Print SKILL.md",
+    "  -h, --help                     Show help",
+    "",
+    "Environment variables:",
+    "  DB_ENGINE (default: mysql)",
+    "  DB_HOST (default: localhost)",
+    "  DB_PORT (default: 3306 for mysql, 5432 for postgres)",
+    "  DB_USER (required)",
+    "  DB_PASSWORD (default: empty)",
+    "  DB_NAME (required)",
+    "  DB_CLI_SKIP_UTF8_CONSOLE=1 (Windows: do not switch terminal output to UTF-8)"
+  ].forEach(writeStdoutLine);
 }
 
 function printSkill() {
   const skillPath = path.resolve(__dirname, "..", "SKILL.md");
   const content = fs.readFileSync(skillPath, "utf8");
-  console.log(content);
+  writeStdout(content);
 }
 
 function toCell(value) {
@@ -210,7 +251,7 @@ class BufferedOutStream {
       if (this.outputPath) {
         fs.appendFileSync(this.outputPath, payload, "utf8");
       } else {
-        process.stdout.write(payload);
+        writeStdout(payload);
       }
       this.buffer.length = 0;
     }
@@ -476,6 +517,7 @@ async function executeMysql(config, sqlList) {
       user: config.user,
       password: config.password,
       database: config.database,
+      charset: "utf8mb4",
       multipleStatements: false
     });
 
@@ -515,6 +557,7 @@ async function executePostgres(config, sqlList) {
 
   try {
     await client.connect();
+    await client.query("SET client_encoding TO 'UTF8'");
     const results = [];
 
     for (const sql of sqlList) {
@@ -546,16 +589,19 @@ async function run() {
   const args = parseArgs(process.argv.slice(2));
 
   if (args.version) {
-    console.log(version);
+    prepareOutputEncoding();
+    writeStdoutLine(version);
     process.exit(0);
   }
 
   if (args.skill) {
+    prepareOutputEncoding();
     printSkill();
     process.exit(0);
   }
 
   if (args.invalidOption) {
+    if (!args.output) prepareOutputEncoding();
     const outStream = new BufferedOutStream(args.output);
     writeErrorOutput(outStream, `Unknown option: ${args.invalidOption}. Run --help or --skill for usage.`);
     outStream.flush();
@@ -563,6 +609,7 @@ async function run() {
   }
 
   if (args.repeatedExec) {
+    if (!args.output) prepareOutputEncoding();
     const outStream = new BufferedOutStream(args.output);
     writeErrorOutput(outStream, 'Multiple --exec/-e are not allowed. Use one -e with ";" for multistatement.');
     outStream.flush();
@@ -572,10 +619,12 @@ async function run() {
   const sqlStatements = splitSqlStatements(args.execSql || "");
 
   if (args.help || sqlStatements.length === 0) {
+    prepareOutputEncoding();
     printHelp();
     process.exit(args.help ? 0 : 1);
   }
 
+  if (!args.output) prepareOutputEncoding();
   const outStream = new BufferedOutStream(args.output);
   try {
     const config = resolveConfig(args);

@@ -96,7 +96,11 @@ id|name
 2|Bob
 ```
 
-When using `--output file.txt` (or shell redirection `>`), output is saved as UTF-8, so Thai text remains readable.
+All terminal, redirected, and `--output file.txt` output is written as UTF-8 on Windows, Linux, and macOS, so Thai text remains readable.
+
+On Windows PowerShell, terminal output automatically switches the console to UTF-8. To disable that behavior, set `DB_CLI_SKIP_UTF8_CONSOLE=1` before running `db-cli`.
+
+On Linux, make sure the terminal locale is UTF-8, for example `LANG=C.UTF-8` or `LANG=en_US.UTF-8`, so the terminal decodes the UTF-8 output correctly.
 
 For non-select SQL (insert/update/delete/create/drop/truncate):
 
