@@ -1,6 +1,6 @@
 # db-cli
 
-Simple Node.js CLI for executing SQL on MySQL and PostgreSQL.
+Simple Node.js CLI for executing SQL on MySQL, PostgreSQL, and SQLite.
 
 ## Installation
 
@@ -42,6 +42,12 @@ PostgreSQL:
 db-cli --engine postgres --host localhost --port 5432 --user postgres --password secret --database app --exec "SELECT id, name FROM users"
 ```
 
+SQLite:
+
+```bash
+db-cli --engine sqlite --database app.sqlite --exec "SELECT id, name FROM users"
+```
+
 Short options:
 
 ```bash
@@ -53,6 +59,7 @@ Multistatement in one `-e`:
 ```bash
 db-cli --engine my -u root -p secret -d app -e "CREATE TABLE t(id INT); INSERT INTO t VALUES (1); SELECT * FROM t;"
 db-cli --engine pg -u postgres -p secret -d app -e "CREATE TABLE t(id INT); INSERT INTO t VALUES (1); SELECT * FROM t;"
+db-cli --engine sq -d app.sqlite -e "CREATE TABLE t(id INTEGER); INSERT INTO t VALUES (1); SELECT * FROM t;"
 ```
 
 Export result to `.txt` file (pipe-delimited):
@@ -64,12 +71,12 @@ db-cli --engine my -u root -p secret -d app -e "SELECT id, name FROM users" > us
 
 ## Options
 
-- `--engine <mysql|postgres>` (aliases: `my`, `pg`; default: `mysql`)
+- `--engine <mysql|postgres|sqlite>` (aliases: `my`, `pg`, `sq`; default: `mysql`)
 - `--host <value>`
 - `--port <value>`
 - `--user, -u <value>`
 - `--password, -p <value>`
-- `--database, --db, -d <value>`
+- `--database, --db, -d <value>` (database name, or SQLite database file path)
 - `--exec, -e "sql"` (single `-e` only, use `;` for multistatement)
 - `--output, -o <path>` (write UTF-8 text file, still pipe-delimited)
 - `--version, -v`
@@ -81,10 +88,10 @@ If an option is not provided in command line, it falls back to env vars:
 
 - `DB_ENGINE` (default `mysql`)
 - `DB_HOST` (default `localhost`)
-- `DB_PORT` (default `3306` for mysql, `5432` for postgres)
-- `DB_USER`
+- `DB_PORT` (default `3306` for mysql, `5432` for postgres; ignored for sqlite)
+- `DB_USER` (required for mysql/postgres)
 - `DB_PASSWORD` (default empty)
-- `DB_NAME`
+- `DB_NAME` (database name, or SQLite database file path)
 
 ## Output format
 

@@ -1,7 +1,7 @@
 {
     "name": "db-cli",
-    "version": "1.0.8",
-    "description": "CLI for MySQL and PostgreSQL SQL execution",
+    "version": "1.0.9",
+    "description": "CLI for MySQL, PostgreSQL, and SQLite SQL execution",
     "bin": {
         "db-cli": "bin/db-cli.js"
     },
@@ -13,12 +13,15 @@
         "mysql",
         "postgres",
         "postgresql",
+        "sqlite",
+        "sqlite3",
         "cli",
         "sql"
     ],
     "author": "",
     "license": "ISC",
     "dependencies": {
+        "better-sqlite3": "^12.9.0",
         "mysql2": "^3.20.0",
         "pg": "^8.20.0"
     }

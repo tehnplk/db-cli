@@ -143,6 +143,7 @@ function normalizeEngine(input) {
 
   if (raw === "mysql" || raw === "my") return "mysql";
   if (raw === "postgres" || raw === "postgresql" || raw === "pg") return "postgres";
+  if (raw === "sqlite" || raw === "sqlite3" || raw === "sq") return "sqlite";
   return "";
 }
 
@@ -153,20 +154,22 @@ function printHelp() {
     '  db-cli -g my -u root -d app -e "CREATE TABLE t(id INT); INSERT INTO t VALUES (1); SELECT * FROM t;"',
     '  db-cli -g postgres -H localhost -P 5432 -u postgres -p secret -d app -e "SELECT * FROM users"',
     '  db-cli -g pg -u postgres -d app -e "CREATE TABLE t(id INT); INSERT INTO t VALUES (1); SELECT * FROM t;"',
+    '  db-cli -g sqlite -d app.sqlite -e "CREATE TABLE t(id INTEGER); INSERT INTO t VALUES (1); SELECT * FROM t;"',
     '  db-cli -g my -u root -d app -e "SELECT * FROM users" --output users.txt',
     '  db-cli -g my -u root -d app -e "SELECT * FROM users" > users.txt',
     '  db-cli --engine mysql --host localhost --port 3306 --user root --password secret --database app --exec "SELECT * FROM users"',
     '  db-cli --engine postgres --host localhost --port 5432 --user postgres --password secret --database app --exec "SELECT * FROM users"',
+    '  db-cli --engine sqlite --database app.sqlite --exec "SELECT * FROM users"',
     "  db-cli -v | --version",
     "  db-cli -s | --skill",
     "",
     "Command options:",
-    "  -g, --engine <mysql|postgres>  Database engine (aliases: my, pg; default: mysql)",
+    "  -g, --engine <mysql|postgres|sqlite>  Database engine (aliases: my, pg, sq; default: mysql)",
     "  -H, --host <value>             Database host",
     "  -P, --port <value>             Database port",
     "  -u, --user <value>             Database user",
     "  -p, --password <value>         Database password",
-    "  -d, --database, --db <value>   Database name",
+    "  -d, --database, --db <value>   Database name, or SQLite database file path",
     '  -e, --exec "sql"               SQL to execute (single -e only, use ";" for multistatement)',
     "  -o, --output <path>            Write output to UTF-8 text file (pipe-delimited)",
     "  -v, --version                  Show CLI version",
@@ -176,10 +179,10 @@ function printHelp() {
     "Environment variables:",
     "  DB_ENGINE (default: mysql)",
     "  DB_HOST (default: localhost)",
-    "  DB_PORT (default: 3306 for mysql, 5432 for postgres)",
-    "  DB_USER (required)",
+    "  DB_PORT (default: 3306 for mysql, 5432 for postgres; ignored for sqlite)",
+    "  DB_USER (required for mysql/postgres)",
     "  DB_PASSWORD (default: empty)",
-    "  DB_NAME (required)",
+    "  DB_NAME (required; SQLite database file path for sqlite)",
     "  DB_CLI_SKIP_UTF8_CONSOLE=1 (Windows: do not switch terminal output to UTF-8)"
   ].forEach(writeStdoutLine);
 }
@@ -480,13 +483,13 @@ function resolveConfig(args) {
   const engine = normalizeEngine(args.engine || process.env.DB_ENGINE || "mysql");
 
   if (!engine) {
-    throw new Error("Invalid --engine. Use mysql/my or postgres/pg.");
+    throw new Error("Invalid --engine. Use mysql/my, postgres/pg, or sqlite/sq.");
   }
 
   const defaultPort = engine === "postgres" ? 5432 : 3306;
-  const port = Number(args.port || process.env.DB_PORT || defaultPort);
+  const port = engine === "sqlite" ? null : Number(args.port || process.env.DB_PORT || defaultPort);
 
-  if (!Number.isFinite(port)) {
+  if (engine !== "sqlite" && !Number.isFinite(port)) {
     throw new Error("Invalid DB port.");
   }
 
@@ -499,8 +502,12 @@ function resolveConfig(args) {
     database: args.database || process.env.DB_NAME
   };
 
-  if (!config.user || !config.database) {
-    throw new Error("Missing database user or database name. Use --user/--database or DB_USER/DB_NAME.");
+  if (!config.database) {
+    throw new Error("Missing database name. Use --database or DB_NAME.");
+  }
+
+  if (engine !== "sqlite" && !config.user) {
+    throw new Error("Missing database user. Use --user or DB_USER.");
   }
 
   return config;
@@ -585,6 +592,36 @@ async function executePostgres(config, sqlList) {
   }
 }
 
+async function executeSqlite(config, sqlList) {
+  const Database = require("better-sqlite3");
+  const db = new Database(config.database);
+  const results = [];
+
+  try {
+    for (const sql of sqlList) {
+      const statement = db.prepare(sql);
+
+      if (statement.reader) {
+        const rows = statement.all();
+        const fields = statement.columns().map((column) => ({ name: column.name }));
+        results.push({ type: "rows", rows, fields });
+        continue;
+      }
+
+      const result = statement.run();
+      results.push({
+        type: "status",
+        affectedRows: result.changes || 0,
+        insertId: result.lastInsertRowid === undefined ? "" : result.lastInsertRowid
+      });
+    }
+
+    return results;
+  } finally {
+    db.close();
+  }
+}
+
 async function run() {
   const args = parseArgs(process.argv.slice(2));
 
@@ -630,7 +667,9 @@ async function run() {
     const config = resolveConfig(args);
     const results = config.engine === "postgres"
       ? await executePostgres(config, sqlStatements)
-      : await executeMysql(config, sqlStatements);
+      : config.engine === "sqlite"
+        ? await executeSqlite(config, sqlStatements)
+        : await executeMysql(config, sqlStatements);
 
     for (let i = 0; i < results.length; i += 1) {
       if (results.length > 1) {
