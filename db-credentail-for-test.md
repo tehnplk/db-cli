@@ -6,7 +6,7 @@
 |-----------|-------|
 | **Host**     | `localhost` |
 | **Port**     | `3306`      |
-| **Database** | `hosxp_pcu` |
+| **Database** | `hos_07547` |
 | **User**     | `root`      |
 | **Password** | `112233`    |
 

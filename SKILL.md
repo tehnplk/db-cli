@@ -1,11 +1,19 @@
 ---
 name: db-cli
-description: Execute SQL from command line for MySQL, PostgreSQL, and SQLite and return pipe-delimited output. Use when the user needs to run SQL quickly via `db-cli --exec`, list tables, inspect data, run write operations, or capture structured `status|message` errors without writing code.
+description: Execute SQL from the command line for MySQL, PostgreSQL, and SQLite with pipe-delimited terminal or UTF-8 file output. Use when the user needs to inspect a database, run read or write SQL, test a live connection, export query results, validate large-result retrieval, or capture structured `status|message` errors without writing code.
 ---
 
 # db-cli
 
 Run SQL against MySQL, PostgreSQL, or SQLite using CLI options (no environment variables required).
+
+## Workflow
+
+1. Identify the database engine and the connection that belongs to the requested system. If a credential source contains multiple databases, match the system label instead of using the first connection found.
+2. Keep credentials out of commands shown to the user, logs, and final responses. Prefer temporary `DB_*` environment variables when credentials come from a file.
+3. Use read-only SQL unless the user explicitly requests a write.
+4. Send large or sensitive results to `-o <path>` instead of the terminal. Do not print patient, customer, or other private rows merely to prove the query worked.
+5. Validate exports with an independent `COUNT(*)`, exit status, output header, and file size. Delete temporary validation exports; preserve files the user requested.
 
 ## Installation
 
@@ -46,6 +54,19 @@ Export to UTF-8 `.txt` file (pipe-delimited):
 ```bash
 db-cli -g my -H <host> -P <port> -u <user> -p <password> -d <database> -e "<sql>" -o result.txt
 db-cli -g my -H <host> -P <port> -u <user> -p <password> -d <database> -e "<sql>" > result.txt
+```
+
+Export a small sample without displaying its rows:
+
+```bash
+db-cli -g my -H <host> -P <port> -u <user> -p <password> -d <database> -e "SELECT * FROM person LIMIT 10" -o person-10.txt
+```
+
+For a full-table retrieval test, count first and then export. Compare the expected count with the exported row count without printing the data:
+
+```bash
+db-cli -g my -H <host> -P <port> -u <user> -p <password> -d <database> -e "SELECT COUNT(*) AS total FROM person"
+db-cli -g my -H <host> -P <port> -u <user> -p <password> -d <database> -e "SELECT * FROM person" -o person-all.txt
 ```
 
 Long form:
@@ -89,6 +110,8 @@ db-cli --skill
 - `-v, --version`
 - `-s, --skill` (print `SKILL.md`)
 - `-h, --help`
+
+`-o/--output` replaces an existing destination file. Query results are buffered in bounded output batches; SQLite reader queries are streamed row by row. MySQL and PostgreSQL drivers may still materialize one statement's result internally, so use a filtered query or `LIMIT` when a full export is unnecessary.
 ## Environment fallback
 
 If options are not provided, use:

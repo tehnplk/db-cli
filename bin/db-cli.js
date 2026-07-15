@@ -36,7 +36,7 @@ function prepareOutputEncoding() {
 }
 
 function writeStdout(text) {
-  process.stdout.write(Buffer.from(String(text), "utf8"));
+  process.stdout.write(String(text), "utf8");
 }
 
 function writeStdoutLine(text = "") {
@@ -236,14 +236,15 @@ class BufferedOutStream {
   constructor(outputPath) {
     this.outputPath = outputPath;
     this.buffer = [];
-    if (outputPath) {
-      fs.writeFileSync(this.outputPath, "");
-    }
+    this.bufferBytes = 0;
+    this.fileDescriptor = outputPath ? fs.openSync(outputPath, "w") : null;
   }
 
   write(text) {
-    this.buffer.push(text);
-    if (this.buffer.length >= 10000) {
+    const value = String(text);
+    this.buffer.push(value);
+    this.bufferBytes += Buffer.byteLength(value, "utf8");
+    if (this.bufferBytes >= 64 * 1024) {
       this.flush();
     }
   }
@@ -251,12 +252,21 @@ class BufferedOutStream {
   flush() {
     if (this.buffer.length > 0) {
       const payload = this.buffer.join("");
-      if (this.outputPath) {
-        fs.appendFileSync(this.outputPath, payload, "utf8");
+      if (this.fileDescriptor !== null) {
+        fs.writeSync(this.fileDescriptor, payload, null, "utf8");
       } else {
         writeStdout(payload);
       }
       this.buffer.length = 0;
+      this.bufferBytes = 0;
+    }
+  }
+
+  close() {
+    this.flush();
+    if (this.fileDescriptor !== null) {
+      fs.closeSync(this.fileDescriptor);
+      this.fileDescriptor = null;
     }
   }
 }
@@ -271,14 +281,20 @@ function writeResultOutput(outStream, result) {
 
     outStream.write(headers.join("|") + "\n");
     const numHeaders = headers.length;
-    for (let i = 0; i < result.rows.length; i++) {
-      let line = "";
-      const row = result.rows[i];
+    const lines = [];
+    for (const row of result.rows) {
+      const cells = new Array(numHeaders);
       for (let j = 0; j < numHeaders; j++) {
-        if (j > 0) line += "|";
-        line += toCell(row[headers[j]]);
+        cells[j] = toCell(row[headers[j]]);
       }
-      outStream.write(line + "\n");
+      lines.push(cells.join("|"));
+      if (lines.length === 1000) {
+        outStream.write(lines.join("\n") + "\n");
+        lines.length = 0;
+      }
+    }
+    if (lines.length > 0) {
+      outStream.write(lines.join("\n") + "\n");
     }
   } else {
     outStream.write("status|affectedRows|insertId\n");
@@ -513,10 +529,9 @@ function resolveConfig(args) {
   return config;
 }
 
-async function executeMysql(config, sqlList) {
+async function executeMysql(config, sqlList, onResult) {
   const mysql = require("mysql2/promise");
   let connection;
-  const results = [];
   try {
     connection = await mysql.createConnection({
       host: config.host,
@@ -528,23 +543,22 @@ async function executeMysql(config, sqlList) {
       multipleStatements: false
     });
 
-    for (const sql of sqlList) {
+    for (let i = 0; i < sqlList.length; i += 1) {
+      const sql = sqlList[i];
       const [rows, fields] = await connection.query(sql);
 
       const rowsResult = asMysqlRowsResult(rows, fields);
       if (rowsResult) {
-        results.push({ type: "rows", rows: rowsResult.rows, fields: rowsResult.fields });
+        onResult({ type: "rows", rows: rowsResult.rows, fields: rowsResult.fields }, i);
         continue;
       }
 
-      results.push({
+      onResult({
         type: "status",
         affectedRows: rows.affectedRows || 0,
         insertId: rows.insertId || ""
-      });
+      }, i);
     }
-
-    return results;
   } finally {
     if (connection) {
       await connection.end();
@@ -552,7 +566,7 @@ async function executeMysql(config, sqlList) {
   }
 }
 
-async function executePostgres(config, sqlList) {
+async function executePostgres(config, sqlList, onResult) {
   const { Client } = require("pg");
   const client = new Client({
     host: config.host,
@@ -565,24 +579,21 @@ async function executePostgres(config, sqlList) {
   try {
     await client.connect();
     await client.query("SET client_encoding TO 'UTF8'");
-    const results = [];
-
-    for (const sql of sqlList) {
+    for (let i = 0; i < sqlList.length; i += 1) {
+      const sql = sqlList[i];
       const result = await client.query(sql);
 
       if (Array.isArray(result.rows) && result.fields && result.fields.length > 0) {
-        results.push({ type: "rows", rows: result.rows, fields: result.fields });
+        onResult({ type: "rows", rows: result.rows, fields: result.fields }, i);
         continue;
       }
 
-      results.push({
+      onResult({
         type: "status",
         affectedRows: result.rowCount || 0,
         insertId: ""
-      });
+      }, i);
     }
-
-    return results;
   } finally {
     try {
       await client.end();
@@ -592,31 +603,28 @@ async function executePostgres(config, sqlList) {
   }
 }
 
-async function executeSqlite(config, sqlList) {
+async function executeSqlite(config, sqlList, onResult) {
   const Database = require("better-sqlite3");
   const db = new Database(config.database);
-  const results = [];
 
   try {
-    for (const sql of sqlList) {
+    for (let i = 0; i < sqlList.length; i += 1) {
+      const sql = sqlList[i];
       const statement = db.prepare(sql);
 
       if (statement.reader) {
-        const rows = statement.all();
         const fields = statement.columns().map((column) => ({ name: column.name }));
-        results.push({ type: "rows", rows, fields });
+        onResult({ type: "rows", rows: statement.iterate(), fields }, i);
         continue;
       }
 
       const result = statement.run();
-      results.push({
+      onResult({
         type: "status",
         affectedRows: result.changes || 0,
         insertId: result.lastInsertRowid === undefined ? "" : result.lastInsertRowid
-      });
+      }, i);
     }
-
-    return results;
   } finally {
     db.close();
   }
@@ -641,7 +649,7 @@ async function run() {
     if (!args.output) prepareOutputEncoding();
     const outStream = new BufferedOutStream(args.output);
     writeErrorOutput(outStream, `Unknown option: ${args.invalidOption}. Run --help or --skill for usage.`);
-    outStream.flush();
+    outStream.close();
     process.exit(1);
   }
 
@@ -649,7 +657,7 @@ async function run() {
     if (!args.output) prepareOutputEncoding();
     const outStream = new BufferedOutStream(args.output);
     writeErrorOutput(outStream, 'Multiple --exec/-e are not allowed. Use one -e with ";" for multistatement.');
-    outStream.flush();
+    outStream.close();
     process.exit(1);
   }
 
@@ -665,22 +673,24 @@ async function run() {
   const outStream = new BufferedOutStream(args.output);
   try {
     const config = resolveConfig(args);
-    const results = config.engine === "postgres"
-      ? await executePostgres(config, sqlStatements)
-      : config.engine === "sqlite"
-        ? await executeSqlite(config, sqlStatements)
-        : await executeMysql(config, sqlStatements);
-
-    for (let i = 0; i < results.length; i += 1) {
-      if (results.length > 1) {
-        outStream.write(`command|${i + 1}\n`);
+    const onResult = (result, index) => {
+      if (sqlStatements.length > 1) {
+        outStream.write(`command|${index + 1}\n`);
       }
-      writeResultOutput(outStream, results[i]);
+      writeResultOutput(outStream, result);
+    };
+
+    if (config.engine === "postgres") {
+      await executePostgres(config, sqlStatements, onResult);
+    } else if (config.engine === "sqlite") {
+      await executeSqlite(config, sqlStatements, onResult);
+    } else {
+      await executeMysql(config, sqlStatements, onResult);
     }
-    outStream.flush();
+    outStream.close();
   } catch (error) {
     writeErrorOutput(outStream, getErrorMessage(error));
-    outStream.flush();
+    outStream.close();
     process.exit(1);
   }
 }
