@@ -57,9 +57,9 @@ db-cli --engine my -u root -p secret -d app -e "SELECT id, name FROM users"
 Multistatement in one `-e`:
 
 ```bash
-db-cli --engine my -u root -p secret -d app -e "CREATE TABLE t(id INT); INSERT INTO t VALUES (1); SELECT id FROM t;"
-db-cli --engine pg -u postgres -p secret -d app -e "CREATE TABLE t(id INT); INSERT INTO t VALUES (1); SELECT id FROM t;"
-db-cli --engine sq -d app.sqlite -e "CREATE TABLE t(id INTEGER); INSERT INTO t VALUES (1); SELECT id FROM t;"
+db-cli --engine my -u root -p secret -d app -w -e "CREATE TABLE t(id INT); INSERT INTO t VALUES (1); SELECT id FROM t;"
+db-cli --engine pg -u postgres -p secret -d app -w -e "CREATE TABLE t(id INT); INSERT INTO t VALUES (1); SELECT id FROM t;"
+db-cli --engine sq -d app.sqlite -w -e "CREATE TABLE t(id INTEGER); INSERT INTO t VALUES (1); SELECT id FROM t;"
 ```
 
 Export result to `.txt` file (pipe-delimited):
@@ -109,7 +109,15 @@ On Windows PowerShell, terminal output automatically switches the console to UTF
 
 On Linux, make sure the terminal locale is UTF-8, for example `LANG=C.UTF-8` or `LANG=en_US.UTF-8`, so the terminal decodes the UTF-8 output correctly.
 
-For non-select SQL (insert/update/delete/create/drop/truncate):
+### Personal data guard
+
+- `SELECT *` (or `alias.*`) is refused on `patient` and `person`. `COUNT(*)` and `SELECT *` on other tables are fine.
+- Columns named `*cid`, `*lname`, `passport_no`, `*tel`, `*phone*`, and `*addr*` (not `addressid`) are returned as an MD5 digest, in two layers: the SQL is rewritten to `MD5(salt || col) AS col` so raw values stay in the engine, and any output column with such a name is hashed again on the way out if it still holds a raw value (`SELECT *`, views, aliases, procedures).
+- `DB_CLI_HASH_SALT=<secret>` is required whenever a statement touches one of those columns; the CLI refuses to run unsalted (13-digit ids and phone numbers are trivially brute-forced). Use the same salt to compare digests between runs.
+- Read-only by default: only `SELECT`, `WITH`, `SHOW`, `DESCRIBE`, `EXPLAIN`, `PRAGMA`, `VALUES` run. `INSERT/UPDATE/DELETE`, DDL, `CALL`, a CTE that writes and `SELECT ... INTO table` are refused unless you pass `-w/--write`. This stops raw values being copied into a non-PII column and read back.
+- Server-side file access is refused even with `--write`: `INTO OUTFILE/DUMPFILE`, `LOAD DATA`, `LOAD_FILE()`, `COPY ... TO`, `pg_read_file()`, `VACUUM INTO`, `ATTACH`. Those would carry raw values past the output layer.
+
+For non-select SQL (insert/update/delete/create/drop/truncate), run with `-w/--write`:
 
 ```text
 status|affectedRows|insertId

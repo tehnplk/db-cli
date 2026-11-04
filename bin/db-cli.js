@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 "use strict";
 
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
@@ -130,6 +131,11 @@ function parseArgs(argv) {
       continue;
     }
 
+    if (token === "--write" || token === "-w") {
+      args.write = true;
+      continue;
+    }
+
     if (token.startsWith("-") && !args.invalidOption) {
       args.invalidOption = token;
     }
@@ -151,10 +157,10 @@ function printHelp() {
   [
     "Usage:",
     '  db-cli -g mysql -H localhost -P 3306 -u root -p secret -d app -e "SELECT id, name FROM users"',
-    '  db-cli -g my -u root -d app -e "CREATE TABLE t(id INT); INSERT INTO t VALUES (1); SELECT id FROM t;"',
+    '  db-cli -g my -u root -d app -w -e "CREATE TABLE t(id INT); INSERT INTO t VALUES (1); SELECT id FROM t;"',
     '  db-cli -g postgres -H localhost -P 5432 -u postgres -p secret -d app -e "SELECT id, name FROM users"',
-    '  db-cli -g pg -u postgres -d app -e "CREATE TABLE t(id INT); INSERT INTO t VALUES (1); SELECT id FROM t;"',
-    '  db-cli -g sqlite -d app.sqlite -e "CREATE TABLE t(id INTEGER); INSERT INTO t VALUES (1); SELECT id FROM t;"',
+    '  db-cli -g pg -u postgres -d app -w -e "CREATE TABLE t(id INT); INSERT INTO t VALUES (1); SELECT id FROM t;"',
+    '  db-cli -g sqlite -d app.sqlite -w -e "CREATE TABLE t(id INTEGER); INSERT INTO t VALUES (1); SELECT id FROM t;"',
     '  db-cli -g my -u root -d app -e "SELECT id, name FROM users" --output users.txt',
     '  db-cli -g my -u root -d app -e "SELECT id, name FROM users" > users.txt',
     '  db-cli --engine mysql --host localhost --port 3306 --user root --password secret --database app --exec "SELECT id, name FROM users"',
@@ -172,6 +178,7 @@ function printHelp() {
     "  -d, --database, --db <value>   Database name, or SQLite database file path",
     '  -e, --exec "sql"               SQL to execute (single -e only, use ";" for multistatement)',
     "  -o, --output <path>            Write output to UTF-8 text file (pipe-delimited)",
+    "  -w, --write                    Allow INSERT/UPDATE/DELETE/DDL/CALL (default: read-only, SELECT/SHOW/EXPLAIN only)",
     "  -v, --version                  Show CLI version",
     "  -s, --skill                    Print SKILL.md",
     "  -h, --help                     Show help",
@@ -183,7 +190,8 @@ function printHelp() {
     "  DB_USER (required for mysql/postgres)",
     "  DB_PASSWORD (default: empty)",
     "  DB_NAME (required; SQLite database file path for sqlite)",
-    "  DB_CLI_SKIP_UTF8_CONSOLE=1 (Windows: do not switch terminal output to UTF-8)"
+    "  DB_CLI_SKIP_UTF8_CONSOLE=1 (Windows: do not switch terminal output to UTF-8)",
+    "  DB_CLI_HASH_SALT (secret prepended before MD5 of cid/lname/phone/address columns; required when SQL touches them)"
   ].forEach(writeStdoutLine);
 }
 
@@ -271,7 +279,7 @@ class BufferedOutStream {
   }
 }
 
-function writeResultOutput(outStream, result) {
+function writeResultOutput(outStream, result, safeHeaders = new Set()) {
   if (result.type === "rows") {
     const headers = collectHeaders(result.rows, result.fields);
     if (headers.length === 0) {
@@ -279,13 +287,21 @@ function writeResultOutput(outStream, result) {
       return;
     }
 
-    outStream.write(headers.join("|") + "\n");
     const numHeaders = headers.length;
+    // Duplicate header names (`COUNT(*) cid, cid`) make an aggregate alias ambiguous: hash them all.
+    const exempt = new Set(headers).size === numHeaders ? safeHeaders : new Set();
+    const piiHeader = headers.map((name) => isPiiColumn(name) && !exempt.has(name.toLowerCase()));
+    if (!HASH_SALT && piiHeader.some(Boolean)) {
+      throw new Error(SALT_REQUIRED_MESSAGE);
+    }
+
+    outStream.write(headers.join("|") + "\n");
     const lines = [];
     for (const row of result.rows) {
       const cells = new Array(numHeaders);
       for (let j = 0; j < numHeaders; j++) {
         cells[j] = toCell(row[headers[j]]);
+        if (piiHeader[j]) cells[j] = hashCell(cells[j]);
       }
       lines.push(cells.join("|"));
       if (lines.length === 1000) {
@@ -495,6 +511,207 @@ function splitSqlStatements(sqlText) {
   return statements;
 }
 
+// Matches `SELECT *`, `SELECT DISTINCT *`, `, *`, `alias.*` on masked text (strings and comments
+// blanked); `COUNT(*)` passes because `*` follows `(`.
+const SELECT_STAR_RE = /(?:\bselect|\bdistinct|,|\.)\s*\*/i;
+const PII_TABLE_RE = /\b(?:patient|person)\b/i;
+
+function assertNoSelectStar(sql) {
+  const masked = maskLiterals(sql);
+  if (SELECT_STAR_RE.test(masked) && PII_TABLE_RE.test(masked)) {
+    throw new Error("SELECT * is not allowed on patient/person. List columns explicitly (COUNT(*) is fine).");
+  }
+}
+
+// PII columns, by name. Covered: *cid (cid, father_cid, sps_cid...), *lname (lname, ec_lname,
+// spslname...), passport_no, *tel (hometel, worktel, informtel), *phone* (home_phone,
+// mobile_phone_number), *addr* (addrpart, informaddr, work_addr, addr_1...) but not addressid.
+const PII_COLUMN_RE = /^(?:\w*cid|\w*lname|passport_no|\w*tel|\w*phone\w*|\w*addr(?!ess)\w*)$/i;
+const HASH_SALT = process.env.DB_CLI_HASH_SALT || "";
+const MD5_HEX_RE = /^[0-9a-f]{32}$/i;
+const SALT_REQUIRED_MESSAGE = "DB_CLI_HASH_SALT is not set. Unsalted MD5 of cid/lname/phone/address can be brute-forced; set a secret salt and rerun.";
+
+// Read-only by default. A statement may run without --write only when it starts with a read
+// keyword and contains no write verb (a CTE can wrap INSERT/UPDATE/DELETE) and no INTO target
+// (Postgres `SELECT ... INTO newtable`, MySQL `INTO OUTFILE`); `INTO @var` is fine.
+const READ_KEYWORDS = new Set(["select", "with", "show", "describe", "desc", "explain", "pragma", "values"]);
+const LEADING_NOISE_RE = /^(?:\s+|--[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)+/;
+const WRITE_VERB_RE = /\b(?:insert|update|delete|merge|replace|create|alter|drop|truncate|call|grant|revoke)\b/i;
+const INTO_TARGET_RE = /\binto\s+(?!@)/i;
+
+function statementPreview(sql) {
+  return sql.replace(LEADING_NOISE_RE, "").slice(0, 40).replace(/\s+/g, " ");
+}
+
+function assertReadOnly(sql) {
+  const body = maskLiterals(sql).replace(LEADING_NOISE_RE, "");
+  const keyword = (body.match(/^[A-Za-z]+/) || [""])[0].toLowerCase();
+  if (!READ_KEYWORDS.has(keyword) || WRITE_VERB_RE.test(body) || INTO_TARGET_RE.test(body)) {
+    throw new Error(`Read-only mode: statement refused (${statementPreview(sql)}...). Add --write/-w to allow writes.`);
+  }
+}
+
+// Server-side file access is refused even with --write: it would carry raw values past layer 2
+// (MySQL INTO OUTFILE/DUMPFILE, LOAD DATA, LOAD_FILE; Postgres COPY ... TO, pg_read_file;
+// SQLite VACUUM INTO, ATTACH).
+const FILE_IO_RE = /\binto\s+(?:outfile|dumpfile)\b|\bload\s+data\b|\bload_file\s*\(|\bcopy\b[\s\S]*\bto\b|\bpg_read_\w*\s*\(|\bvacuum\s+into\b|\battach\b/i;
+
+function assertNoFileIo(sql) {
+  if (FILE_IO_RE.test(maskLiterals(sql))) {
+    throw new Error(`File access refused (${statementPreview(sql)}...): statements that read or write server files are never allowed.`);
+  }
+}
+
+function isPiiColumn(name) {
+  return PII_COLUMN_RE.test(name);
+}
+
+// Layer 2 (output): hash a cell of a PII-named column. Skips values that are already an MD5
+// digest so a cell hashed by layer 1 is not hashed twice.
+function hashCell(value) {
+  if (value === "" || MD5_HEX_RE.test(value)) return value;
+  return crypto.createHash("md5").update(HASH_SALT + value, "utf8").digest("hex");
+}
+
+// Same-length copy of `sql` with string contents, quoted identifiers and comments blanked, so
+// keyword and identifier scans never match inside them. Delimiting quotes are kept in place.
+function maskLiterals(sql) {
+  const out = sql.split("");
+  let i = 0;
+  while (i < sql.length) {
+    const ch = sql[i];
+    const next = sql[i + 1];
+    if (ch === "-" && next === "-") {
+      while (i < sql.length && sql[i] !== "\n") out[i++] = " ";
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      const end = sql.indexOf("*/", i + 2);
+      const stop = end === -1 ? sql.length : end + 2;
+      while (i < stop) out[i++] = " ";
+      continue;
+    }
+    if (ch === "'" || ch === "\"" || ch === "`") {
+      i += 1;
+      while (i < sql.length) {
+        if (ch === "'" && sql[i] === "\\") {
+          out[i++] = " ";
+          if (i < sql.length) out[i++] = " ";
+          continue;
+        }
+        if (sql[i] === ch) {
+          if (sql[i + 1] !== ch) break;
+          out[i++] = " ";
+        }
+        out[i++] = " ";
+      }
+      i += 1;
+      continue;
+    }
+    if (ch === "$") {
+      const tag = /^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/.exec(sql.slice(i));
+      if (tag) {
+        const end = sql.indexOf(tag[0], i + tag[0].length);
+        const stop = end === -1 ? sql.length : end + tag[0].length;
+        while (i < stop) out[i++] = " ";
+        continue;
+      }
+    }
+    i += 1;
+  }
+  return out.join("");
+}
+
+// Layer 1 (SQL): wrap PII column references inside every select list in MD5(salt || col) so raw
+// values never leave the engine. Same digest as hashCell for text columns.
+// A select list runs from SELECT to the FROM at the same paren depth (or the closing paren / end),
+// found on the masked text, so `from` in a string, comment or EXTRACT(... FROM ...) cannot end it.
+const TOKEN_RE = /\(|\)|\b[A-Za-z_]\w*\b/g;
+const IDENTIFIER_RE = /\b((?:\w+\.)?)([A-Za-z_]\w*)\b/g;
+
+function selectListRanges(masked) {
+  const ranges = [];
+  const open = [];
+  let depth = 0;
+  for (const m of masked.matchAll(TOKEN_RE)) {
+    const token = m[0];
+    if (token === "(") {
+      depth += 1;
+      continue;
+    }
+    if (token === ")") {
+      while (open.length && open[open.length - 1].depth === depth) ranges.push({ ...open.pop(), end: m.index });
+      depth -= 1;
+      continue;
+    }
+    const word = token.toLowerCase();
+    if (word === "select") {
+      open.push({ depth, start: m.index + token.length });
+    } else if (word === "from" && open.length && open[open.length - 1].depth === depth) {
+      ranges.push({ ...open.pop(), end: m.index });
+    }
+  }
+  while (open.length) ranges.push({ ...open.pop(), end: masked.length });
+  return ranges;
+}
+
+function sqlLiteral(text) {
+  return `'${text.replace(/'/g, "''")}'`;
+}
+
+function hashSql(engine, column) {
+  return engine === "mysql"
+    ? `MD5(CONCAT(${sqlLiteral(HASH_SALT)}, ${column}))`
+    : `MD5(${sqlLiteral(HASH_SALT)} || ${column})`;
+}
+
+function parenDepth(text) {
+  let depth = 0;
+  for (const ch of text) {
+    if (ch === "(") depth += 1;
+    else if (ch === ")") depth -= 1;
+  }
+  return depth;
+}
+
+// Aliases of COUNT/SUM/AVG are numeric aggregates, never a raw value, so layer 2 may skip them
+// even when named like a PII column (e.g. `COUNT(DISTINCT lname) AS distinct_lname`).
+// ponytail: regex with two levels of nested parens; deeper nesting just falls back to hashing.
+const AGGREGATE_ALIAS_RE = /\b(?:count|sum|avg)\s*\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)\s+(?:as\s+)?([A-Za-z_]\w*)/gi;
+
+function aggregateAliases(sql) {
+  return new Set(Array.from(maskLiterals(sql).matchAll(AGGREGATE_ALIAS_RE), (m) => m[1].toLowerCase()));
+}
+
+// An identifier right after `)`, a literal, a number or a plain word (`AS`, `END`, a column) is an
+// alias (`COUNT(*) total_cid`, `x AS cid`), not a column. Words that introduce an expression are excluded.
+const ALIAS_CONTEXT_RE = /(?:\)|'|"|`|\d|\b(?!(?:select|distinct|all|case|when|then|else|and|or|not|like|in|is|between|escape|collate)\b)[A-Za-z_]\w*)\s+$/i;
+
+function encryptPiiInSql(sql, engine) {
+  const masked = maskLiterals(sql);
+  const ranges = selectListRanges(masked);
+  const innermost = (offset) =>
+    ranges
+      .filter((r) => r.start <= offset && offset < r.end)
+      .sort((a, b) => a.end - a.start - (b.end - b.start))[0];
+
+  let out = "";
+  let last = 0;
+  for (const m of masked.matchAll(IDENTIFIER_RE)) {
+    const [match, prefix, name] = m;
+    const range = isPiiColumn(name) ? innermost(m.index) : undefined;
+    if (!range) continue;
+    const before = masked.slice(range.start, m.index);
+    if (ALIAS_CONTEXT_RE.test(before)) continue;
+    const after = masked.slice(m.index + match.length, range.end);
+    const wrapped = hashSql(engine, prefix + name);
+    const bareItem = parenDepth(before) === 0 && /^\s*(?:,|$)/.test(after);
+    out += sql.slice(last, m.index) + (bareItem ? `${wrapped} AS ${name}` : wrapped);
+    last = m.index + match.length;
+  }
+  return out + sql.slice(last);
+}
+
 function resolveConfig(args) {
   const engine = normalizeEngine(args.engine || process.env.DB_ENGINE || "mysql");
 
@@ -606,6 +823,8 @@ async function executePostgres(config, sqlList, onResult) {
 async function executeSqlite(config, sqlList, onResult) {
   const Database = require("better-sqlite3");
   const db = new Database(config.database);
+  // SQLite has no MD5(); match MySQL/Postgres so the cid rewrite works everywhere.
+  db.function("md5", (value) => (value === null ? null : crypto.createHash("md5").update(String(value), "utf8").digest("hex")));
 
   try {
     for (let i = 0; i < sqlList.length; i += 1) {
@@ -626,7 +845,11 @@ async function executeSqlite(config, sqlList, onResult) {
       }, i);
     }
   } finally {
-    db.close();
+    try {
+      db.close();
+    } catch (_error) {
+      // An open iterator makes close() throw; keep the original error instead.
+    }
   }
 }
 
@@ -661,7 +884,7 @@ async function run() {
     process.exit(1);
   }
 
-  const sqlStatements = splitSqlStatements(args.execSql || "");
+  let sqlStatements = splitSqlStatements(args.execSql || "");
 
   if (args.help || sqlStatements.length === 0) {
     prepareOutputEncoding();
@@ -673,11 +896,20 @@ async function run() {
   const outStream = new BufferedOutStream(args.output);
   try {
     const config = resolveConfig(args);
+    sqlStatements.forEach(assertNoSelectStar);
+    sqlStatements.forEach(assertNoFileIo);
+    if (!args.write) sqlStatements.forEach(assertReadOnly);
+    const safeHeaders = sqlStatements.map(aggregateAliases);
+    const rewritten = sqlStatements.map((sql) => encryptPiiInSql(sql, config.engine));
+    if (!HASH_SALT && rewritten.some((sql, i) => sql !== sqlStatements[i])) {
+      throw new Error(SALT_REQUIRED_MESSAGE);
+    }
+    sqlStatements = rewritten;
     const onResult = (result, index) => {
       if (sqlStatements.length > 1) {
         outStream.write(`command|${index + 1}\n`);
       }
-      writeResultOutput(outStream, result);
+      writeResultOutput(outStream, result, safeHeaders[index]);
     };
 
     if (config.engine === "postgres") {

@@ -11,8 +11,8 @@ Run SQL against MySQL, PostgreSQL, or SQLite using CLI options (no environment v
 
 1. Identify the database engine and the connection that belongs to the requested system. If a credential source contains multiple databases, match the system label instead of using the first connection found.
 2. Keep credentials out of commands shown to the user, logs, and final responses. Prefer temporary `DB_*` environment variables when credentials come from a file.
-3. Use read-only SQL unless the user explicitly requests a write.
-   When testing a query, never put `cid`, `idcard`, `lname`, or `lastname` in the SQL you run, and never use `SELECT *` (or `alias.*`) — list columns explicitly. Once the test gives the expected result, add `lname` back into the final SQL you hand over; leave `cid`, `idcard`, `lastname` out and tell the user which file and line to add them in themselves, with a link.
+3. Use read-only SQL unless the user explicitly requests a write. `db-cli` refuses writes (INSERT/UPDATE/DELETE/DDL/CALL, CTE writes, `SELECT ... INTO`) without `-w/--write`; add the flag only for a write the user asked for.
+   `db-cli` refuses `SELECT *` on `patient`/`person` and returns `*cid`, `*lname`, `passport_no`, `*tel`, `*phone*`, `*addr*` columns as salted MD5, so those columns may appear in the SQL you run. `DB_CLI_HASH_SALT` must be set for such a query; without it the CLI exits with an error.
 4. Send large or sensitive results to `-o <path>` instead of the terminal. Do not print patient, customer, or other private rows merely to prove the query worked.
 5. Validate exports with an independent `COUNT(*)`, exit status, output header, and file size. Delete temporary validation exports; preserve files the user requested.
 
@@ -135,6 +135,8 @@ Supported on MySQL, PostgreSQL, and SQLite:
 - `TRUNCATE`
 - `DROP`
 
+All of these need `-w/--write`; without it `db-cli` answers `error|Read-only mode: statement refused ...`.
+
 Upsert syntax by vendor:
 
 - MySQL: `INSERT ... ON DUPLICATE KEY UPDATE ...`
@@ -201,7 +203,7 @@ db-cli -g sq -d "$env:USERPROFILE\Desktop\F43.db" -e "SELECT COUNT(*) AS total F
 Use only one `-e/--exec`. For multiple statements, put them in one SQL string separated by semicolons:
 
 ```powershell
-db-cli -g sq -d "$env:TEMP\test.db" -e "CREATE TABLE t(id INTEGER); INSERT INTO t VALUES (1); SELECT id FROM t;"
+db-cli -g sq -d "$env:TEMP\test.db" -w -e "CREATE TABLE t(id INTEGER); INSERT INTO t VALUES (1); SELECT id FROM t;"
 ```
 
 If another script parses `db-cli` output in PowerShell, remember that `chcp 65001` can print `Active code page: 65001`. Either run `chcp 65001 | Out-Null` before parsing, set `DB_CLI_SKIP_UTF8_CONSOLE=1`, or filter that line from script output.
