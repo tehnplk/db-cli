@@ -12,6 +12,7 @@ Run SQL against MySQL, PostgreSQL, or SQLite using CLI options (no environment v
 1. Identify the database engine and the connection that belongs to the requested system. If a credential source contains multiple databases, match the system label instead of using the first connection found.
 2. Keep credentials out of commands shown to the user, logs, and final responses. Prefer temporary `DB_*` environment variables when credentials come from a file.
 3. Use read-only SQL unless the user explicitly requests a write.
+   When testing a query, never put `cid`, `idcard`, `lname`, or `lastname` in the SQL you run, and never use `SELECT *` (or `alias.*`) — list columns explicitly. Once the test gives the expected result, add `lname` back into the final SQL you hand over; leave `cid`, `idcard`, `lastname` out and tell the user which file and line to add them in themselves, with a link.
 4. Send large or sensitive results to `-o <path>` instead of the terminal. Do not print patient, customer, or other private rows merely to prove the query worked.
 5. Validate exports with an independent `COUNT(*)`, exit status, output header, and file size. Delete temporary validation exports; preserve files the user requested.
 
@@ -59,14 +60,14 @@ db-cli -g my -H <host> -P <port> -u <user> -p <password> -d <database> -e "<sql>
 Export a small sample without displaying its rows:
 
 ```bash
-db-cli -g my -H <host> -P <port> -u <user> -p <password> -d <database> -e "SELECT * FROM person LIMIT 10" -o person-10.txt
+db-cli -g my -H <host> -P <port> -u <user> -p <password> -d <database> -e "SELECT hn, pname, fname FROM person LIMIT 10" -o person-10.txt
 ```
 
 For a full-table retrieval test, count first and then export. Compare the expected count with the exported row count without printing the data:
 
 ```bash
 db-cli -g my -H <host> -P <port> -u <user> -p <password> -d <database> -e "SELECT COUNT(*) AS total FROM person"
-db-cli -g my -H <host> -P <port> -u <user> -p <password> -d <database> -e "SELECT * FROM person" -o person-all.txt
+db-cli -g my -H <host> -P <port> -u <user> -p <password> -d <database> -e "SELECT hn, pname, fname FROM person" -o person-all.txt
 ```
 
 Long form:
@@ -200,7 +201,7 @@ db-cli -g sq -d "$env:USERPROFILE\Desktop\F43.db" -e "SELECT COUNT(*) AS total F
 Use only one `-e/--exec`. For multiple statements, put them in one SQL string separated by semicolons:
 
 ```powershell
-db-cli -g sq -d "$env:TEMP\test.db" -e "CREATE TABLE t(id INTEGER); INSERT INTO t VALUES (1); SELECT * FROM t;"
+db-cli -g sq -d "$env:TEMP\test.db" -e "CREATE TABLE t(id INTEGER); INSERT INTO t VALUES (1); SELECT id FROM t;"
 ```
 
 If another script parses `db-cli` output in PowerShell, remember that `chcp 65001` can print `Active code page: 65001`. Either run `chcp 65001 | Out-Null` before parsing, set `DB_CLI_SKIP_UTF8_CONSOLE=1`, or filter that line from script output.
@@ -215,13 +216,13 @@ If Thai text looks corrupted in PowerShell or redirected files, force UTF-8 befo
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
 $OutputEncoding = [System.Text.UTF8Encoding]::new()
 chcp 65001
-db-cli -g my -H <host> -P <port> -u <user> -p <password> -d <database> -e "SELECT pname, fname, lname FROM person LIMIT 10"
+db-cli -g my -H <host> -P <port> -u <user> -p <password> -d <database> -e "SELECT pname, fname FROM person LIMIT 10"
 ```
 
 For file export, prefer `--output` because `db-cli` writes the file as UTF-8 directly:
 
 ```powershell
-db-cli -g my -H <host> -P <port> -u <user> -p <password> -d <database> -e "SELECT pname, fname, lname FROM person LIMIT 10" --output result.txt
+db-cli -g my -H <host> -P <port> -u <user> -p <password> -d <database> -e "SELECT pname, fname FROM person LIMIT 10" --output result.txt
 Get-Content -Encoding UTF8 result.txt
 ```
 
@@ -230,5 +231,5 @@ On Linux, make sure the shell locale is UTF-8:
 ```bash
 export LANG=C.UTF-8
 export LC_ALL=C.UTF-8
-db-cli -g my -H <host> -P <port> -u <user> -p <password> -d <database> -e "SELECT pname, fname, lname FROM person LIMIT 10"
+db-cli -g my -H <host> -P <port> -u <user> -p <password> -d <database> -e "SELECT pname, fname FROM person LIMIT 10"
 ```
