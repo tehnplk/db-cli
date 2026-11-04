@@ -112,8 +112,8 @@ On Linux, make sure the terminal locale is UTF-8, for example `LANG=C.UTF-8` or 
 ### Personal data guard
 
 - `SELECT *` (or `alias.*`) is refused on `patient` and `person`. `COUNT(*)` and `SELECT *` on other tables are fine.
-- Columns named `*cid`, `*lname`, `passport_no`, `*tel`, `*phone*`, and `*addr*` (not `addressid`) are returned as an MD5 digest, in two layers: the SQL is rewritten to `MD5(salt || col) AS col` so raw values stay in the engine, and any output column with such a name is hashed again on the way out if it still holds a raw value (`SELECT *`, views, aliases, procedures).
-- `DB_CLI_HASH_SALT=<secret>` is required whenever a statement touches one of those columns; the CLI refuses to run unsalted (13-digit ids and phone numbers are trivially brute-forced). Use the same salt to compare digests between runs.
+- Columns named `*cid`, `*lname`, `passport_no`, `*tel`, `*phone*`, and `*addr*` (not `addressid`) are returned as an MD5 digest, in two layers: the SQL is rewritten to `MD5(col) AS col` so raw values stay in the engine, and any output column with such a name is hashed again on the way out if it still holds a raw value (`SELECT *`, views, aliases, procedures).
+- Plain, unsalted MD5 on purpose: a digest from the output can be used to find the same row again with `WHERE MD5(cid) = '<digest>'` (`WHERE` is never rewritten). Note that a 13-digit id or a phone number behind an unsalted MD5 can be recovered by brute force; treat exports as pseudonymised, not anonymised.
 - Read-only by default: only `SELECT`, `WITH`, `SHOW`, `DESCRIBE`, `EXPLAIN`, `PRAGMA`, `VALUES` run. `INSERT/UPDATE/DELETE`, DDL, `CALL`, a CTE that writes and `SELECT ... INTO table` are refused unless you pass `-w/--write`. This stops raw values being copied into a non-PII column and read back.
 - Server-side file access is refused even with `--write`: `INTO OUTFILE/DUMPFILE`, `LOAD DATA`, `LOAD_FILE()`, `COPY ... TO`, `pg_read_file()`, `VACUUM INTO`, `ATTACH`. Those would carry raw values past the output layer.
 

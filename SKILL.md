@@ -12,7 +12,7 @@ Run SQL against MySQL, PostgreSQL, or SQLite using CLI options (no environment v
 1. Identify the database engine and the connection that belongs to the requested system. If a credential source contains multiple databases, match the system label instead of using the first connection found.
 2. Keep credentials out of commands shown to the user, logs, and final responses. Prefer temporary `DB_*` environment variables when credentials come from a file.
 3. Use read-only SQL unless the user explicitly requests a write. `db-cli` refuses writes (INSERT/UPDATE/DELETE/DDL/CALL, CTE writes, `SELECT ... INTO`) without `-w/--write`; add the flag only for a write the user asked for.
-   `db-cli` refuses `SELECT *` on `patient`/`person` and returns `*cid`, `*lname`, `passport_no`, `*tel`, `*phone*`, `*addr*` columns as salted MD5, so those columns may appear in the SQL you run. `DB_CLI_HASH_SALT` must be set for such a query; without it the CLI exits with an error.
+   `db-cli` refuses `SELECT *` on `patient`/`person` and returns `*cid`, `*lname`, `passport_no`, `*tel`, `*phone*`, `*addr*` columns as plain MD5, so those columns may appear in the SQL you run. To find a row again from a digest, use `WHERE MD5(cid) = '<digest>'`; `WHERE` is not rewritten.
 4. Send large or sensitive results to `-o <path>` instead of the terminal. Do not print patient, customer, or other private rows merely to prove the query worked.
 5. Validate exports with an independent `COUNT(*)`, exit status, output header, and file size. Delete temporary validation exports; preserve files the user requested.
 

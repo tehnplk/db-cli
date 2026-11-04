@@ -12,7 +12,7 @@ const cliPath = path.resolve(__dirname, "..", "bin", "db-cli.js");
 function run(args, env = {}) {
   return spawnSync(process.execPath, [cliPath, ...args], {
     encoding: "utf8",
-    env: { ...process.env, DB_CLI_SKIP_UTF8_CONSOLE: "1", DB_CLI_HASH_SALT: "s3", ...env }
+    env: { ...process.env, DB_CLI_SKIP_UTF8_CONSOLE: "1", ...env }
   });
 }
 
@@ -99,9 +99,9 @@ test("blocks SELECT * on patient/person but allows it elsewhere and COUNT(*)", (
 });
 
 const md5 = (text) => require("node:crypto").createHash("md5").update(text).digest("hex");
-const H = md5("s3v"); // salted digest of 'v'
+const H = md5("v"); // digest of 'v'
 
-test("layer 1 rewrites PII columns in the select list to MD5(salt || col) AS col", () => {
+test("layer 1 rewrites PII columns in the select list to MD5(col) AS col", () => {
   const pii = ["cid", "father_cid", "lname", "ec_lname", "spslname", "passport_no", "hometel", "informtel", "home_phone", "mobile_phone_number",
     "addrpart", "informaddr", "work_addr", "old_addr", "addr_soi", "addr_1"];
   const plain = ["cid_type", "lname_soundex", "fname", "hotel_x", "addressid"];
@@ -150,22 +150,13 @@ test("layer 2 hashes PII-named output columns that layer 1 cannot see", () => {
   }
 });
 
-test("refuses to hash with an empty salt, before connecting when possible", () => {
-  const noSalt = { DB_CLI_HASH_SALT: "" };
-
-  const layer1 = run(["-g", "sq", "-d", ":memory:", "-e", "SELECT cid FROM t"], noSalt);
-  assert.equal(layer1.status, 1);
-  assert.equal(layer1.stdout, "status|message\nerror|DB_CLI_HASH_SALT is not set. Unsalted MD5 of cid/lname/phone/address can be brute-forced; set a secret salt and rerun.\n");
-
-  const layer2 = sq(FIXTURE + "SELECT * FROM t", []);
-  assert.equal(layer2.status, 0);
-  const layer2NoSalt = run(["-g", "sq", "-d", ":memory:", "-w", "-e", FIXTURE + "SELECT * FROM t"], noSalt);
-  assert.equal(layer2NoSalt.status, 1);
-  assert.match(layer2NoSalt.stdout, /command\|3\nstatus\|message\nerror\|DB_CLI_HASH_SALT is not set/);
-
-  const noPii = run(["-g", "sq", "-d", ":memory:", "-e", "SELECT 1 AS n"], noSalt);
-  assert.equal(noPii.status, 0);
-  assert.equal(noPii.stdout, "n\n1\n");
+test("a digest from the output finds the row again through WHERE MD5(col)", () => {
+  const result = sq(
+    "CREATE TABLE t(cid, fname); INSERT INTO t VALUES ('1234567890123', 'a'), ('9999999999999', 'b'); " +
+    `SELECT fname FROM t WHERE MD5(cid) = '${md5("1234567890123")}'`
+  );
+  assert.equal(result.status, 0, result.stdout);
+  assert.ok(result.stdout.endsWith("command|3\nfname\na\n"), result.stdout);
 });
 
 test("writes UTF-8 output through one managed file handle", () => {

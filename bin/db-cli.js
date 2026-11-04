@@ -190,8 +190,7 @@ function printHelp() {
     "  DB_USER (required for mysql/postgres)",
     "  DB_PASSWORD (default: empty)",
     "  DB_NAME (required; SQLite database file path for sqlite)",
-    "  DB_CLI_SKIP_UTF8_CONSOLE=1 (Windows: do not switch terminal output to UTF-8)",
-    "  DB_CLI_HASH_SALT (secret prepended before MD5 of cid/lname/phone/address columns; required when SQL touches them)"
+    "  DB_CLI_SKIP_UTF8_CONSOLE=1 (Windows: do not switch terminal output to UTF-8)"
   ].forEach(writeStdoutLine);
 }
 
@@ -291,9 +290,6 @@ function writeResultOutput(outStream, result, safeHeaders = new Set()) {
     // Duplicate header names (`COUNT(*) cid, cid`) make an aggregate alias ambiguous: hash them all.
     const exempt = new Set(headers).size === numHeaders ? safeHeaders : new Set();
     const piiHeader = headers.map((name) => isPiiColumn(name) && !exempt.has(name.toLowerCase()));
-    if (!HASH_SALT && piiHeader.some(Boolean)) {
-      throw new Error(SALT_REQUIRED_MESSAGE);
-    }
 
     outStream.write(headers.join("|") + "\n");
     const lines = [];
@@ -527,9 +523,7 @@ function assertNoSelectStar(sql) {
 // spslname...), passport_no, *tel (hometel, worktel, informtel), *phone* (home_phone,
 // mobile_phone_number), *addr* (addrpart, informaddr, work_addr, addr_1...) but not addressid.
 const PII_COLUMN_RE = /^(?:\w*cid|\w*lname|passport_no|\w*tel|\w*phone\w*|\w*addr(?!ess)\w*)$/i;
-const HASH_SALT = process.env.DB_CLI_HASH_SALT || "";
 const MD5_HEX_RE = /^[0-9a-f]{32}$/i;
-const SALT_REQUIRED_MESSAGE = "DB_CLI_HASH_SALT is not set. Unsalted MD5 of cid/lname/phone/address can be brute-forced; set a secret salt and rerun.";
 
 // Read-only by default. A statement may run without --write only when it starts with a read
 // keyword and contains no write verb (a CTE can wrap INSERT/UPDATE/DELETE) and no INTO target
@@ -568,9 +562,11 @@ function isPiiColumn(name) {
 
 // Layer 2 (output): hash a cell of a PII-named column. Skips values that are already an MD5
 // digest so a cell hashed by layer 1 is not hashed twice.
+// Plain MD5, no salt, on purpose: a digest taken from the output can be fed back as
+// `WHERE MD5(cid) = '<digest>'` to find the same row.
 function hashCell(value) {
   if (value === "" || MD5_HEX_RE.test(value)) return value;
-  return crypto.createHash("md5").update(HASH_SALT + value, "utf8").digest("hex");
+  return crypto.createHash("md5").update(value, "utf8").digest("hex");
 }
 
 // Same-length copy of `sql` with string contents, quoted identifiers and comments blanked, so
@@ -622,7 +618,7 @@ function maskLiterals(sql) {
   return out.join("");
 }
 
-// Layer 1 (SQL): wrap PII column references inside every select list in MD5(salt || col) so raw
+// Layer 1 (SQL): wrap PII column references inside every select list in MD5(col) so raw
 // values never leave the engine. Same digest as hashCell for text columns.
 // A select list runs from SELECT to the FROM at the same paren depth (or the closing paren / end),
 // found on the masked text, so `from` in a string, comment or EXTRACT(... FROM ...) cannot end it.
@@ -655,14 +651,9 @@ function selectListRanges(masked) {
   return ranges;
 }
 
-function sqlLiteral(text) {
-  return `'${text.replace(/'/g, "''")}'`;
-}
-
 function hashSql(engine, column) {
-  return engine === "mysql"
-    ? `MD5(CONCAT(${sqlLiteral(HASH_SALT)}, ${column}))`
-    : `MD5(${sqlLiteral(HASH_SALT)} || ${column})`;
+  // Postgres md5() takes text only; the cast is a no-op for varchar columns.
+  return engine === "postgres" ? `MD5(${column}::text)` : `MD5(${column})`;
 }
 
 function parenDepth(text) {
@@ -900,11 +891,7 @@ async function run() {
     sqlStatements.forEach(assertNoFileIo);
     if (!args.write) sqlStatements.forEach(assertReadOnly);
     const safeHeaders = sqlStatements.map(aggregateAliases);
-    const rewritten = sqlStatements.map((sql) => encryptPiiInSql(sql, config.engine));
-    if (!HASH_SALT && rewritten.some((sql, i) => sql !== sqlStatements[i])) {
-      throw new Error(SALT_REQUIRED_MESSAGE);
-    }
-    sqlStatements = rewritten;
+    sqlStatements = sqlStatements.map((sql) => encryptPiiInSql(sql, config.engine));
     const onResult = (result, index) => {
       if (sqlStatements.length > 1) {
         outStream.write(`command|${index + 1}\n`);
